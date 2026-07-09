@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // FileWriteOperation 覆盖或追加写远端文件。

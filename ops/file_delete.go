@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // FileDeleteOperation 删除远端文件 / 目录。

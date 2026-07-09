@@ -1,3 +1,3 @@
-module github.com/yliken/redbeanshellcore
+module github.com/Yliken/redbeanshellcore
 
 go 1.21

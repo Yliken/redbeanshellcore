@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Transport 是基于表单的 HTTP 传输实现。

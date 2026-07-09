@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // phpInfo 是 Info 操作的 PHP 适配器版本。

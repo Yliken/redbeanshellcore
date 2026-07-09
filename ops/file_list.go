@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // FileListOperation 列出远端目录。

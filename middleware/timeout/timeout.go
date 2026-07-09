@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Options 调整超时行为。

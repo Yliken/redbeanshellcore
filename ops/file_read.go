@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // FileReadOperation 把远端文件原样读到内存。

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // FileRenameOperation 重命名 / 移动远端文件。

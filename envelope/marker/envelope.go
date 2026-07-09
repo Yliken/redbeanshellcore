@@ -11,7 +11,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Envelope 用一对随机生成的 tag_s / tag_e 把请求包起来，再从响应中截取

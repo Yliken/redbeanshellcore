@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // AuditEvent 是单条审计事件的结构。

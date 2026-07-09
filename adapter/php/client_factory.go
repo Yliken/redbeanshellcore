@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/yliken/redbeanshellcore/core"
-	"github.com/yliken/redbeanshellcore/transport/httpform"
+	"github.com/Yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/transport/httpform"
 )
 
 // ClientFactory 是为 PHP Shell 定制的 ClientFactory。

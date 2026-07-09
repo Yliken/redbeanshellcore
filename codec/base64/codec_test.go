@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 func TestCodecRoundTrip(t *testing.T) {

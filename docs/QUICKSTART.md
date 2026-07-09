@@ -5,7 +5,7 @@
 ## 1. 安装
 
 ```bash
-go get github.com/yliken/redbeanshellcore
+go get github.com/Yliken/redbeanshellcore
 ```
 
 要求 Go 1.21+。
@@ -20,9 +20,9 @@ import (
     "fmt"
     "time"
 
-    "github.com/yliken/redbeanshellcore/core"
-    phpshell "github.com/yliken/redbeanshellcore/adapter/php"
-    "github.com/yliken/redbeanshellcore/transport/httpform"
+    "github.com/Yliken/redbeanshellcore/core"
+    phpshell "github.com/Yliken/redbeanshellcore/adapter/php"
+    "github.com/Yliken/redbeanshellcore/transport/httpform"
 )
 
 func main() {

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/yliken/redbeanshellcore/core"
-	transportmock "github.com/yliken/redbeanshellcore/transport/mock"
+	"github.com/Yliken/redbeanshellcore/core"
+	transportmock "github.com/Yliken/redbeanshellcore/transport/mock"
 )
 
 // stubOp 是测试专用的 operation。

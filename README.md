@@ -31,7 +31,7 @@
 ## 快速开始
 
 ```bash
-go get github.com/yliken/redbeanshellcore
+go get github.com/Yliken/redbeanshellcore
 ```
 
 ```go
@@ -109,4 +109,4 @@ fmt.Printf("workdir=%s\nos=%s\nuser=%s\n", info.Workdir, info.OS, info.User)
 - base64 参数内联传输模式
 - MassData / 流量混淆等免杀思路
 
-项目地址：https://github.com/AntSword-project/AntSword
+项目地址：https://github.com/AntSwordProject/antSword

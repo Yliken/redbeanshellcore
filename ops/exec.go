@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // ExecOperation 在远端跑一条 shell 命令，拿到 stdout/stderr。

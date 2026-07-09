@@ -1,7 +1,7 @@
 package php
 
 import (
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Parser 把原始响应字节转成结构化的 core.Result。

@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"strings"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Adapter 把模板源、占位符替换器和 parser 组装到一起。

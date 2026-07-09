@@ -5,7 +5,7 @@ package readonly
 import (
 	"context"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Middleware 返回拒绝写入类操作的中间件。

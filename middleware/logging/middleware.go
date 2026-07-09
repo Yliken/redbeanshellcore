@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Options 调整日志行为。

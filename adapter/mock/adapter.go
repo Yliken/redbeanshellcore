@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Adapter 是 mock 适配器。故意做成无状态——"远端"状态由 mock Transport 的 handler 持有。

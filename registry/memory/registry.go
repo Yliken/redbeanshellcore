@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Registry 是线程安全的进程内节点注册表。

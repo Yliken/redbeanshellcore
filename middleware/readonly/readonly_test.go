@@ -5,8 +5,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/yliken/redbeanshellcore/core"
-	"github.com/yliken/redbeanshellcore/transport/mock"
+	"github.com/Yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/transport/mock"
 )
 
 func TestReadonlyBlocksExec(t *testing.T) {

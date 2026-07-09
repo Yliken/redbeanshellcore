@@ -1,6 +1,6 @@
 package php
 
-import "github.com/yliken/redbeanshellcore/core"
+import "github.com/Yliken/redbeanshellcore/core"
 
 // Capabilities 声明 php 适配器支持的能力，对应 Python demo 里已有的模板集。
 type Capabilities struct{}

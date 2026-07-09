@@ -4,7 +4,7 @@ package plain
 import (
 	"context"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Codec 是 core.Codec 的恒等变换实现，也是未配置 codec 时的默认值。

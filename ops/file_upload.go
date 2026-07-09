@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // FileUploadOperation 把本地 reader 的数据上传到远端路径。

@@ -8,7 +8,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Registry 把节点记录持久化到单个 JSON 文件。

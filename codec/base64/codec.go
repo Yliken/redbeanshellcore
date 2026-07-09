@@ -7,7 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Codec 把请求 payload base64 编码、把响应 body base64 解码。

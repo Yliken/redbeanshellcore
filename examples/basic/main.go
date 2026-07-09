@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	phpshell "github.com/yliken/redbeanshellcore/adapter/php"
-	"github.com/yliken/redbeanshellcore/core"
-	"github.com/yliken/redbeanshellcore/registry/memory"
+	phpshell "github.com/Yliken/redbeanshellcore/adapter/php"
+	"github.com/Yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/registry/memory"
 )
 
 func main() {

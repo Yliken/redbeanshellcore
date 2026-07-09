@@ -29,7 +29,7 @@ adapter/
 ```go
 package jsp
 
-import "github.com/yliken/redbeanshellcore/core"
+import "github.com/Yliken/redbeanshellcore/core"
 
 type Adapter struct{}
 

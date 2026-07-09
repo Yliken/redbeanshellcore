@@ -5,7 +5,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // InfoOperation 拉取远端节点的 OS / 运行时元数据。

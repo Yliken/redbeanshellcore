@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/core"
 )
 
 // Transport 是内存 Transport。每次 RoundTrip 都会派发到构造时注入的 Handler。
