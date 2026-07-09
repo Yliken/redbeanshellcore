@@ -1,0 +1,17 @@
+# 个人测试模块，不发布
+agentdemo/
+
+# Go
+*.exe
+*.test
+*.out
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

