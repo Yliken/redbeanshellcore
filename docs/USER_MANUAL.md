@@ -62,7 +62,7 @@ res, err := client.Do(ctx, operation)
 | Key | 说明 |
 |-----|------|
 | `auth_password_field` | 密码 POST 字段名（默认 `antpwd`） |
-| `password_value` | 密码值（可选） |
+| `password_value` | 密码值（可选，当前版本未使用） |
 
 ---
 

@@ -91,7 +91,7 @@ mgr := core.NewManager(memory.New(), phpadapter.NewClientFactory())
 mgr.Register(ctx, core.NodeConfig{
     ID: "lab-a", Endpoint: "https://lab-a.example/shell.php",
     Adapter: "php", Transport: "httpform",
-    Auth:  map[string]string{"param": "antpwd"},
+    Auth:  map[string]string{"auth_password_field": "antpwd"},
     Tags:  []string{"lab"}, Group: "case-001",
 })
 

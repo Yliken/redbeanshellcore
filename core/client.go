@@ -71,6 +71,16 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 		req.Meta["codec"] = c.codec.Name()
 	}
 
+	// 生成不可预测的请求 ID，贯穿本次请求生命周期（日志、审计、响应关联）。
+	if req.ID == "" {
+		req.ID = newRequestID()
+	}
+
+	// 把操作风险等级注入 req.Meta，让 Readonly 中间件能按 RiskLevel 拦截。
+	if aware, ok := op.(RiskAware); ok {
+		req.Meta["risk_level"] = string(aware.RiskLevel())
+	}
+
 	// 把 session metadata 合并到 req.Meta，让 transport 能读到
 	// auth_password_field / password_value 等字段。
 	if c.session != nil {
@@ -124,6 +134,12 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 	resp, err := next(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+
+	// 在回包进入解析前，先把 HTTP 状态码映射为 SDK 错误，
+	//   避免 4xx/5xx 被当成成功结果。
+	if resp != nil && resp.StatusCode >= 400 {
+		return nil, mapHTTPStatus(resp.StatusCode, op.Name(), c.nodeID())
 	}
 
 	// 6. 应用响应方向的 Transform（倒序）
@@ -183,3 +199,21 @@ func wrapError(kind ErrorKind, opName, nodeID, msg string, cause error) error {
 // 下面这仨 var 是给未来字段扩容时提醒的占位；让 import 保留
 // fmt 字段。如果哪天字段被删了需要把 _=fmt.Sprintf 删掉。
 var _ = fmt.Sprintf
+
+// mapHTTPStatus 把 HTTP 状态码映射为对应的 SDK 错误分类。
+func mapHTTPStatus(code int, op, node string) *OpError {
+	switch {
+	case code == 401:
+		return NewOpError(ErrAuth, op, node, "远端返回 401 未授权", nil)
+	case code == 403:
+		return NewOpError(ErrPermission, op, node, "远端返回 403 拒绝访问", nil)
+	case code == 404:
+		return NewOpError(ErrNotFound, op, node, "远端返回 404 资源不存在", nil)
+	case code >= 500 && code < 600:
+		return NewOpError(ErrRemoteRuntime, op, node,
+			fmt.Sprintf("远端返回 %d 运行时异常", code), nil)
+	default:
+		return NewOpError(ErrNetwork, op, node,
+			fmt.Sprintf("远端返回未预期状态码 %d", code), nil)
+	}
+}

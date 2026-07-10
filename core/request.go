@@ -1,5 +1,10 @@
 package core
 
+import (
+	"crypto/rand"
+	"encoding/hex"
+)
+
 // Request 表示一次已经准备好发送到远端节点的请求。
 type Request struct {
 	ID        string
@@ -49,6 +54,13 @@ func (r *Request) SetHeader(key, value string) {
 		r.Headers = make(map[string]string)
 	}
 	r.Headers[key] = value
+}
+
+// newRequestID 生成一个不可预测的十六进制请求 ID。
+func newRequestID() string {
+	buf := make([]byte, 16)
+	_, _ = rand.Read(buf)
+	return hex.EncodeToString(buf)
 }
 
 // SetMeta 写入 codec / envelope / adapter 的元数据。

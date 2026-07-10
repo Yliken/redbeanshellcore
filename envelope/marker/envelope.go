@@ -48,8 +48,8 @@ func (e *Envelope) generate() (string, error) {
 	return out, nil
 }
 
-// Wrap 把 tag_s / tag_e 写入 req.Meta，供适配器 / 传输层使用。
-//  不会修改原始 payload。
+// Wrap 把 tag_s / tag_e 写入 req.Meta，并把标记注入 payload 前后，
+//   这样远端输出里自然出现标记，Extract 才能从响应 body 中截取。
 func (e *Envelope) Wrap(_ context.Context, req *core.Request) (*core.Request, error) {
 	if req == nil {
 		return nil, errors.New("marker.Envelope.Wrap: 请求不能为空")
@@ -64,6 +64,8 @@ func (e *Envelope) Wrap(_ context.Context, req *core.Request) (*core.Request, er
 	}
 	req.SetMeta("marker.tag_s", tagS)
 	req.SetMeta("marker.tag_e", tagE)
+	// 注入标记到 payload：让远端输出包含 tag_s ... tag_e 包裹的内容。
+	req.Payload = append([]byte(tagS), append(req.Payload, []byte(tagE)...)...)
 	return req, nil
 }
 

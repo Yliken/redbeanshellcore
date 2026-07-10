@@ -3,6 +3,8 @@ package php
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/Yliken/redbeanshellcore/core"
 )
@@ -56,9 +58,10 @@ func (p *phpFileList) Name() string { return "file.list" }
 func (p *phpFileList) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
 	code, placeholders := p.tpl.FileList()
-	// 把路径参数填充进 base64 占位符（路径名 base64 字段约定为 "path"）。
-	req.SetParam("path", []byte(p.target))
-	req.Meta["php_placeholders"] = placeholdersToMeta(placeholders)
+	// 模板用随机变量名读 $_POST，必须用同一个变量名作 SetParam 键。
+	for k := range placeholders {
+		req.SetParam(k, []byte(p.target))
+	}
 	req.Payload = []byte(code)
 	req.Meta["adapter"] = "php"
 	return req, nil
@@ -87,8 +90,10 @@ func (p *phpFileRead) Name() string { return "file.read" }
 
 func (p *phpFileRead) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
-	code, _ := p.tpl.FileRead()
-	req.SetParam("path", []byte(p.target))
+	code, placeholders := p.tpl.FileRead()
+	for k := range placeholders {
+		req.SetParam(k, []byte(p.target))
+	}
 	req.Payload = []byte(code)
 	req.Meta["adapter"] = "php"
 	return req, nil
@@ -251,10 +256,23 @@ func parseFileRead(target string, body []byte) core.Result {
 }
 
 func parseExec(body []byte) core.Result {
-	return &core.ExecResult{
+	out := &core.ExecResult{
 		BaseResult: core.NewBaseResult("exec", body),
 		Stdout:     string(body),
 	}
+	// 远端模板在非零退出码时会尾部追加 "ret=<n>"，解析出来填入 ExitCode。
+	//   注意 stderr 已通过 2>&1 合并到 stdout，这里只提取退出码。
+	const prefix = "ret="
+	s := string(body)
+	if idx := strings.LastIndex(s, prefix); idx >= 0 {
+		codeStr := strings.TrimSpace(s[idx+len(prefix):])
+		if code, err := strconv.Atoi(codeStr); err == nil {
+			out.ExitCode = code
+			// 从 Stdout 中去掉尾部 ret=<n>，保持输出干净。
+			out.Stdout = strings.TrimSpace(s[:idx])
+		}
+	}
+	return out
 }
 
 // 工具函数（为了自包含写了少量辅助函数）。
@@ -329,14 +347,6 @@ func joinLines(parts []string, sep string) string {
 			out += sep
 		}
 		out += p
-	}
-	return out
-}
-
-func placeholdersToMeta(m map[string]string) string {
-	out := ""
-	for k, v := range m {
-		out += k + "=" + v + "\n"
 	}
 	return out
 }
