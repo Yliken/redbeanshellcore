@@ -84,6 +84,11 @@ func (f *ClientFactory) buildCodec(rec *core.NodeRecord) (core.Codec, error) {
 
 // WrapOp 把通用 ops 翻译成语义等价的 PHP 专属 ops。
 // 如果 ApplyTemplate == false 则原样返回，便于调用方按需开启。
+//
+// file.upload 比较特殊：通用 ops.FileUploadOperation 把内容放在 Build 时
+// reader 消费后的 request.Params 里，WrapOp 拿不到；所以 agentdemo 等调用方
+// 必须直接构造 *phpFileUpload（它自己保存 content），WrapOp 对已经是 PHP
+// 版本的原样返回。
 func (f *ClientFactory) WrapOp(op core.Operation) (core.Operation, error) {
 	if !f.ApplyTemplate {
 		return op, nil
@@ -98,6 +103,11 @@ func (f *ClientFactory) WrapOp(op core.Operation) (core.Operation, error) {
 		return NewPhpFileRead(""), nil
 	case "exec":
 		return NewPhpExec(""), nil
+	case "file.upload":
+		// 如果调用方已经给了 PHP 版本，原样使用。
+		if _, ok := op.(*phpFileUpload); ok {
+			return op, nil
+		}
 	}
 	return op, nil
 }

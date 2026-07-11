@@ -91,10 +91,6 @@ ops.NewInfo()
 ops.NewExec("cmd")
 ops.NewFileList("/path")
 ops.NewFileRead("/path")
-ops.NewFileWrite("/path", []byte)
-ops.NewFileDelete("/path")
-ops.NewFileRename("/src", "/dst")
-ops.NewFileMkdir("/path")
 ops.NewFileUpload("/remote", reader)
 ops.NewFileDownload("/path")
 ```
@@ -169,7 +165,7 @@ core.WithMiddleware(
 
 ### Readonly 拦截的操作
 
-`Exec / FileWrite / FileDelete / FileRename / FileMkdir / FileUpload`
+`Exec / FileUpload`
 
 ---
 

