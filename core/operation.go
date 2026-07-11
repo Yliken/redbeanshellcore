@@ -3,7 +3,8 @@ package core
 import "context"
 
 // Operation 描述一个远端原子动作（Info、FileRead、Exec、…）。
-//  适配器负责在 Operation 和 wire 层之间搭建映射。
+//
+//	适配器负责在 Operation 和 wire 层之间搭建映射。
 type Operation interface {
 	Name() string
 	Build(ctx context.Context, sess *Session) (*Request, error)
@@ -14,13 +15,13 @@ type Operation interface {
 type Capability string
 
 const (
-	CapInfo       Capability = "info"        // 获取系统信息
-	CapExec       Capability = "exec"        // 命令执行
-	CapFileList   Capability = "file.list"   // 列目录
-	CapFileRead   Capability = "file.read"   // 读文件
-	CapFileWrite  Capability = "file.write"  // 写文件
-	CapFileDelete Capability = "file.delete" // 删除文件
-	CapFileUpload Capability = "file.upload" // 上传文件
+	CapInfo     Capability = "info"      // 获取系统信息
+	CapExec     Capability = "exec"      // 命令执行
+	CapFileList Capability = "file.list" // 列目录
+	CapFileRead Capability = "file.read" // 读文件
+	//CapFileWrite  Capability = "file.write"  // 写文件
+	//CapFileDelete Capability = "file.delete" // 删除文件
+	//CapFileUpload Capability = "file.upload" // 上传文件
 )
 
 // CapabilityAware 是可选接口，由需要声明前置能力的 Operation 实现。

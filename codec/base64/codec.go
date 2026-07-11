@@ -1,5 +1,6 @@
 // Package base64 提供请求侧 base64 编码 / 响应侧 base64 解码的 Codec，
-//  对应 Python demo 里的 ''base64'' 编码器。
+//
+//	对应 Python demo 里的 ''base64'' 编码器。
 package base64
 
 import (

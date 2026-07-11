@@ -22,6 +22,8 @@ func NewPhpInfo() *phpInfo { return &phpInfo{tpl: NewPHPTemplates()} }
 
 func (p *phpInfo) Name() string { return "info" }
 
+func (p *phpInfo) RiskLevel() core.RiskLevel { return core.RiskReadOnly }
+
 // Build 填入从模板渲染出来的真实 PHP 源码。
 func (p *phpInfo) Build(_ context.Context, sess *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
@@ -54,6 +56,8 @@ func NewPhpFileList(path string) *phpFileList {
 }
 
 func (p *phpFileList) Name() string { return "file.list" }
+
+func (p *phpFileList) RiskLevel() core.RiskLevel { return core.RiskReadOnly }
 
 func (p *phpFileList) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
@@ -88,6 +92,8 @@ func NewPhpFileRead(path string) *phpFileRead {
 
 func (p *phpFileRead) Name() string { return "file.read" }
 
+func (p *phpFileRead) RiskLevel() core.RiskLevel { return core.RiskReadOnly }
+
 func (p *phpFileRead) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
 	code, placeholders := p.tpl.FileRead()
@@ -120,6 +126,8 @@ func NewPhpExec(cmd string) *phpExec {
 }
 
 func (p *phpExec) Name() string { return "exec" }
+
+func (p *phpExec) RiskLevel() core.RiskLevel { return core.RiskExec }
 
 func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
