@@ -1,9 +1,9 @@
 // Package httpform 实现把 POST 请求以 application/x-www-form-urlencoded
-//  形式发出去的 Transport，行为上对应 AntSword 的 PHP 客户端。
+// 形式发出去的 Transport，行为上对应 AntSword 的 PHP 客户端。
 //
-// req.Params 里每一条 kv 都会作为一个表单字段；Metadata 里的
-//  auth_password_field（或由 Manager 注入到 Meta 中）决定哪个字段携带
-//  主 payload（通常是密码字段名，PHP Shell 会 eval 该字段的值）。
+// req.Params 里的值会原样成为表单字段；需要 base64 等协议编码时，
+// 由对应 Operation 在构建 Request 时完成。Metadata 里的 auth_password_field
+// 决定哪个字段携带主 payload。
 //
 // ⚠️ 仅用于授权的实验室环境。InsecureTLS 默认关闭，调用方需自行显式开启。
 package httpform
@@ -11,8 +11,6 @@ package httpform
 import (
 	"context"
 	"crypto/tls"
-	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -21,6 +19,8 @@ import (
 
 	"github.com/Yliken/redbeanshellcore/core"
 )
+
+const maxResponseBodySize int64 = 64 * 1024 * 1024
 
 // Transport 是基于表单的 HTTP 传输实现。
 type Transport struct {
@@ -41,28 +41,28 @@ func New(endpoint string) *Transport {
 }
 
 // RoundTrip 把请求编码为表单 POST。req.Payload 作为主密码字段 body，
-//  req.Params 作为额外字段。响应 body 最大读取 64MiB。
+// req.Params 作为额外字段。超过 64MiB 的响应会返回 ErrProtocol。
 func (t *Transport) RoundTrip(ctx context.Context, req *core.Request) (*core.Response, error) {
+	if req == nil {
+		return nil, &core.OpError{Kind: core.ErrProtocol, Message: "httpform: request 不能为空"}
+	}
 	if t.Endpoint == "" {
 		return nil, &core.OpError{Kind: core.ErrNetwork, Operation: req.Operation, Message: "httpform: endpoint 为空"}
 	}
 
 	form := url.Values{}
-	// 主 payload 写入密码字段；字段名由 Metadata["auth_password_field"] 决定。
 	if field := req.Meta["auth_password_field"]; field != "" {
 		form.Set(field, string(req.Payload))
 	} else {
 		form.Set("antpwd", string(req.Payload))
 	}
-	// 把额外参数按 base64 解码后放入字段，这与 AntSword 一致。
-	for k, v := range req.Params {
-		form.Set(k, string(v))
+	for key, value := range req.Params {
+		form.Set(key, string(value))
 	}
-	// 处理 env 模板变量：|||asline||| 分隔成对，每对 |||askey||| 分隔成 kv。
 	if env := req.Meta["env_template_vars"]; env != "" {
-		for _, kv := range strings.Split(env, "|||asline|||") {
-			if k, v, ok := strings.Cut(kv, "|||askey|||"); ok {
-				form.Set(k, v)
+		for _, pair := range strings.Split(env, "|||asline|||") {
+			if key, value, ok := strings.Cut(pair, "|||askey|||"); ok {
+				form.Set(key, value)
 			}
 		}
 	}
@@ -78,51 +78,60 @@ func (t *Transport) RoundTrip(ctx context.Context, req *core.Request) (*core.Res
 	}
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	httpReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-	for k, v := range req.Headers {
-		httpReq.Header.Set(k, v)
+	for key, value := range req.Headers {
+		httpReq.Header.Set(key, value)
 	}
-	for k, v := range t.ExtraHeaders {
-		httpReq.Header.Set(k, v)
+	for key, value := range t.ExtraHeaders {
+		httpReq.Header.Set(key, value)
 	}
 
-	resp, err := httpClient.Do(httpReq)
+	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		return nil, &core.OpError{Kind: core.ErrNetwork, Operation: req.Operation, Message: "httpform: POST 失败", Cause: err}
 	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024*1024))
-	if err != nil {
-		return nil, &core.OpError{Kind: core.ErrNetwork, Operation: req.Operation, Message: "httpform: 读取 body 失败", Cause: err}
-	}
+	defer httpResp.Body.Close()
+
+	data, oversized, readErr := readBodyLimited(httpResp.Body, maxResponseBodySize)
 	out := core.NewResponse()
 	out.RequestID = req.ID
-	out.StatusCode = resp.StatusCode
+	out.StatusCode = httpResp.StatusCode
 	out.Body = data
-	out.Headers = flattenHeaders(resp.Header)
+	out.Headers = flattenHeaders(httpResp.Header)
+	if readErr != nil {
+		return out, &core.OpError{Kind: core.ErrNetwork, Operation: req.Operation, Message: "httpform: 读取 body 失败", Cause: readErr}
+	}
+	if oversized {
+		return out, &core.OpError{Kind: core.ErrProtocol, Operation: req.Operation, Message: "httpform: 响应 body 超过 64MiB 上限"}
+	}
 	return out, nil
 }
 
+func readBodyLimited(reader io.Reader, limit int64) ([]byte, bool, error) {
+	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if int64(len(data)) > limit {
+		return data[:limit], true, err
+	}
+	return data, false, err
+}
+
 func (t *Transport) buildClient() *http.Client {
-	tr := &http.Transport{}
+	transport := &http.Transport{}
 	if t.InsecureTLS {
-		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	}
 	return &http.Client{
 		Timeout:   t.Timeout,
-		Transport: tr,
+		Transport: transport,
 	}
 }
 
-func flattenHeaders(h http.Header) map[string]string {
-	out := make(map[string]string, len(h))
-	for k, v := range h {
-		if len(v) == 0 {
+func flattenHeaders(headers http.Header) map[string]string {
+	out := make(map[string]string, len(headers))
+	for key, values := range headers {
+		if len(values) == 0 {
 			continue
 		}
-		out[k] = v[0]
+		out[key] = values[0]
 	}
 	return out
 }
-
-var _ = errors.New
-var _ = fmt.Sprintf

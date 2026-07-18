@@ -3,17 +3,17 @@ package php
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/Yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/ops"
 	"github.com/Yliken/redbeanshellcore/transport/httpform"
 )
 
 // ClientFactory 是为 PHP Shell 定制的 ClientFactory。
-//  它会根据节点的 transport / codec 配置挑选合适的底层组件，并让
-//  Info / FileList / FileRead / FileWrite / FileDelete / FileRename /
-//  FileMkdir / FileDownload / Exec 等操作全部发出真正的 PHP 源码 payload，
-//  从而兼容 AntSword 一类的 PHP Shell。
+// 它根据节点配置组装 HTTP Form Client。调用方应使用 PHP 专属 Operation；
+// WrapOp 可显式转换部分通用 Info/FileList/FileRead/FileDownload/Exec 操作。
 type ClientFactory struct {
 	// ApplyTemplate 用来把 ops.New*() 替换成 PHP 专属版本。
 	ApplyTemplate bool
@@ -24,6 +24,9 @@ func NewClientFactory() *ClientFactory { return &ClientFactory{ApplyTemplate: tr
 
 // NewClient 根据 NodeRecord 组装一个可用的 Client。
 func (f *ClientFactory) NewClient(_ context.Context, rec *core.NodeRecord) (*core.Client, error) {
+	if rec == nil {
+		return nil, fmt.Errorf("php.ClientFactory: node record 不能为空")
+	}
 	if rec.Config.Endpoint == "" {
 		return nil, fmt.Errorf("php.ClientFactory: 节点 %q 没有 endpoint", rec.Config.ID)
 	}
@@ -39,12 +42,13 @@ func (f *ClientFactory) NewClient(_ context.Context, rec *core.NodeRecord) (*cor
 	}
 
 	sess := &core.Session{
-		NodeID:    rec.Config.ID,
-		Endpoint:  rec.Config.Endpoint,
-		Adapter:   rec.Config.Adapter,
-		Transport: rec.Config.Transport,
-		Codec:     rec.Config.Codec,
-		Metadata:  copyMap(rec.Metadata),
+		NodeID:       rec.Config.ID,
+		Endpoint:     rec.Config.Endpoint,
+		Adapter:      rec.Config.Adapter,
+		Transport:    rec.Config.Transport,
+		Codec:        rec.Config.Codec,
+		Capabilities: append([]core.Capability(nil), rec.Capabilities...),
+		Metadata:     copyMap(rec.Metadata),
 	}
 	if rec.Config.Auth != nil {
 		for k, v := range rec.Config.Auth {
@@ -82,34 +86,44 @@ func (f *ClientFactory) buildCodec(rec *core.NodeRecord) (core.Codec, error) {
 	}
 }
 
-// WrapOp 把通用 ops 翻译成语义等价的 PHP 专属 ops。
-// 如果 ApplyTemplate == false 则原样返回，便于调用方按需开启。
-//
-// file.upload 比较特殊：通用 ops.FileUploadOperation 把内容放在 Build 时
-// reader 消费后的 request.Params 里，WrapOp 拿不到；所以 agentdemo 等调用方
-// 必须直接构造 *phpFileUpload（它自己保存 content），WrapOp 对已经是 PHP
-// 版本的原样返回。
-func (f *ClientFactory) WrapOp(op core.Operation) (core.Operation, error) {
+// WrapOp 显式把已知通用 Operation 翻译成语义等价的 PHP 专属版本。
+// 已经是 PHP 版本或未知自定义类型时原样返回；该方法不会被 Client 自动调用。
+// 通用 FileUpload 持有 reader，转换会产生隐式消费，因此必须使用 NewPhpFileUpload。
+func (f *ClientFactory) WrapOp(operation core.Operation) (core.Operation, error) {
+	if isNilOperation(operation) {
+		return nil, fmt.Errorf("php.ClientFactory.WrapOp: operation 不能为空")
+	}
 	if !f.ApplyTemplate {
-		return op, nil
+		return operation, nil
 	}
-	switch op.Name() {
-	case "info":
+	switch operation := operation.(type) {
+	case *phpInfo, *phpFileList, *phpFileRead, *phpFileDownload, *phpFileUpload, *phpExec:
+		return operation, nil
+	case *ops.InfoOperation:
 		return NewPhpInfo(), nil
-	case "file.list":
-		// 从 req.Params 凑一个 path；若拿不到就是默认 "/"。
-		return NewPhpFileList("/"), nil
-	case "file.read":
-		return NewPhpFileRead(""), nil
-	case "exec":
-		return NewPhpExec(""), nil
-	case "file.upload":
-		// 如果调用方已经给了 PHP 版本，原样使用。
-		if _, ok := op.(*phpFileUpload); ok {
-			return op, nil
+	case *ops.FileListOperation:
+		return NewPhpFileList(operation.Path), nil
+	case *ops.FileReadOperation:
+		return NewPhpFileRead(operation.Path), nil
+	case *ops.FileDownloadOperation:
+		return NewPhpFileDownload(operation.Path), nil
+	case *ops.ExecOperation:
+		translated := NewPhpExec(operation.Command).WithBin(operation.Bin)
+		for key, value := range copyMap(operation.Env) {
+			translated.WithEnv(key, value)
 		}
+		return translated, nil
+	default:
+		return operation, nil
 	}
-	return op, nil
+}
+
+func isNilOperation(operation core.Operation) bool {
+	if operation == nil {
+		return true
+	}
+	value := reflect.ValueOf(operation)
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 func copyMap(in map[string]string) map[string]string {

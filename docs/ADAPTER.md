@@ -104,7 +104,7 @@ func (f *ClientFactory) NewClient(ctx context.Context, rec *core.NodeRecord) (*c
         NodeID:    rec.Config.ID,
         Endpoint:  rec.Config.Endpoint,
         Adapter:   rec.Config.Adapter,
-        Metadata:  rec.Config.Metadata,
+        Metadata:  rec.Metadata,
     }
 
     return core.NewClient(
@@ -121,10 +121,10 @@ func (f *ClientFactory) NewClient(ctx context.Context, rec *core.NodeRecord) (*c
 方法一：自定义 Factory（推荐）：
 
 ```go
-// 使用 PHP 适配器内置的工厂
+// 使用 PHP 适配器内置的 Factory
 mgr := core.NewManager(registry, phpshell.NewClientFactory())
 
-// 或接入自己的 JSP / ASP 工厂
+// 或接入自己的 JSP / ASP Factory
 mgr := core.NewManager(registry, jspadapter.NewClientFactory())
 ```
 
@@ -147,20 +147,20 @@ res, _ := client.Do(ctx, jspadapter.NewJspInfo())
 
 ## 参考：PHP 适配器实现
 
-编写 JSP / ASP 适配器前，先读 `adapter/php/` 作为最完整的参考：
+编写 JSP / ASP 适配器前，先读 `adapter/php/` 作为完整参考：
 
-- `renderer.go` — 生成可 eval 的 PHP 源码模板
-- `operations.go` — Build 阶段把参数 base64 内联、塞入 payload；Parse 阶段结构化响应
-- `client_factory.go` — `WrapOp` 把通用 ops 替换成专属版本
-- `capabilities.go` — 声明 `CapInfo / CapExec / CapFileList / CapFileRead`
+- `renderer.go` — 生成可执行的 PHP 源码模板
+- `operations.go` — Build 阶段按模板协议编码参数，Parse 阶段生成结构化结果
+- `client_factory.go` — `WrapOp` 可显式、按具体类型转换部分通用 Operation，不会被 Client 自动调用
+- `capabilities.go` — 声明适配器支持的 Capability；当前 Capability 仅用于描述
 
-PHP 适配器采用"自包含"模式：参数 base64 编码后直接内联到源码字符串里，
-不依赖 `$_POST` 字段，远端 eval 即可直接拿到值。
+PHP Exec/Upload 使用 Base64 参数内联；FileList/FileRead/FileDownload 使用随机 `$_POST` 字段，并由 Operation 预先 Base64 编码字段值。Transport 只负责原样提交 `Request.Params`。
 
 ---
 
 ## 注意事项
 
-1. **二进制安全**：读取二进制文件时使用 `getInputStream()`，不要经过字符串转换
-2. **字符编码**：统一 UTF-8，避免中文乱码
-3. **转义**：参数值可能需要 URL 编码或 HTML 实体编码
+1. **二进制安全**：文件读取/下载使用二进制模式，不要进行字符串转码
+2. **协议错误**：为远端错误定义稳定且带命名空间的标记，避免与合法文件内容混淆
+3. **参数编码**：编码责任属于 Adapter/Operation，不应由通用 Transport 猜测
+4. **显式适配**：通用 Operation 到语言专属 Operation 的转换应保持参数语义并显式调用

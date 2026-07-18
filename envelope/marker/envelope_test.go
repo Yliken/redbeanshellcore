@@ -65,6 +65,33 @@ func TestWrap_InjectsTags(t *testing.T) {
 	}
 }
 
+func TestWrap_PHPUsesEchoStatements(t *testing.T) {
+	e := NewWithLength(4)
+	req := core.NewRequest("info")
+	req.Meta["adapter"] = "php"
+	req.Payload = []byte(`echo "body";`)
+
+	out, err := e.Wrap(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Wrap 出错: %v", err)
+	}
+	tagS := out.Meta["marker.tag_s"]
+	tagE := out.Meta["marker.tag_e"]
+	payload := string(out.Payload)
+	if !strings.HasPrefix(payload, "echo '"+tagS+"';") {
+		t.Fatalf("PHP payload 应用 echo 输出 start marker: %q", payload)
+	}
+	if !strings.Contains(payload, `echo "body";`) {
+		t.Fatalf("原 PHP payload 应保持不变: %q", payload)
+	}
+	if !strings.HasSuffix(payload, "echo '"+tagE+"';") {
+		t.Fatalf("PHP payload 应用 echo 输出 end marker: %q", payload)
+	}
+	if strings.HasPrefix(payload, tagS) {
+		t.Fatalf("PHP payload 不应以裸 marker 开头: %q", payload)
+	}
+}
+
 func TestWrap_NilRequest(t *testing.T) {
 	e := New()
 	_, err := e.Wrap(context.Background(), nil)

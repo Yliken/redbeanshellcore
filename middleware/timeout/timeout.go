@@ -1,9 +1,10 @@
-// Package timeout 给 Transport RoundTrip 套上每请求的 context 截止时间。
+// Package timeout 给完整响应处理流程套上每请求的 context 截止时间。
 package timeout
 
 import (
 	"context"
 	"errors"
+	"net"
 	"time"
 
 	"github.com/Yliken/redbeanshellcore/core"
@@ -35,9 +36,37 @@ func Middleware(opts Options) core.Middleware {
 				ctx, cancel = context.WithTimeout(ctx, deadline)
 			}
 			defer cancel()
-			return next(ctx, req)
+
+			resp, err := next(ctx, req)
+			if err == nil || !isTimeout(err) {
+				return resp, err
+			}
+			var opErr *core.OpError
+			if errors.As(err, &opErr) {
+				copyErr := *opErr
+				copyErr.Kind = core.ErrTimeout
+				if copyErr.Operation == "" {
+					copyErr.Operation = req.Operation
+				}
+				if copyErr.NodeID == "" {
+					copyErr.NodeID = req.NodeID
+				}
+				if copyErr.Message == "" {
+					copyErr.Message = "操作超时"
+				}
+				return resp, &copyErr
+			}
+			return resp, core.NewOpError(core.ErrTimeout, req.Operation, req.NodeID, "操作超时", err)
 		}
 	}
+}
+
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 func isLongOp(op string) bool {
@@ -47,5 +76,3 @@ func isLongOp(op string) bool {
 	}
 	return false
 }
-
-var _ = errors.New

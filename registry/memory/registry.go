@@ -27,8 +27,8 @@ func (r *Registry) Put(_ context.Context, rec *core.NodeRecord) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	rp := *rec
-	r.records[rp.Config.ID] = &rp
+	clone := core.CloneNodeRecord(rec)
+	r.records[clone.Config.ID] = clone
 	return nil
 }
 
@@ -40,8 +40,7 @@ func (r *Registry) Get(_ context.Context, nodeID string) (*core.NodeRecord, erro
 	if !ok {
 		return nil, &core.OpError{Kind: core.ErrNotFound, NodeID: nodeID, Message: "节点未注册"}
 	}
-	rp := *rec
-	return &rp, nil
+	return core.CloneNodeRecord(rec), nil
 }
 
 // Delete 删除一条记录。
@@ -59,8 +58,7 @@ func (r *Registry) List(_ context.Context, filter core.NodeFilter) ([]*core.Node
 	out := make([]*core.NodeRecord, 0, len(r.records))
 	for _, rec := range r.records {
 		if matchFilter(rec, filter) {
-			rp := *rec
-			out = append(out, &rp)
+			out = append(out, core.CloneNodeRecord(rec))
 		}
 	}
 	return out, nil

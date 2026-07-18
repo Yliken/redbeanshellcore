@@ -2,6 +2,7 @@ package php
 
 import (
 	"context"
+	stdbase64 "encoding/base64"
 	"testing"
 
 	"github.com/Yliken/redbeanshellcore/core"
@@ -119,6 +120,66 @@ func TestParseFileRead(t *testing.T) {
 	}
 	if string(fr.Data) != string(content) {
 		t.Fatalf("Data 不符合预期: got=%q want=%q", fr.Data, content)
+	}
+}
+
+func TestParseFileList_RemoteError(t *testing.T) {
+	resp := core.NewResponse()
+	resp.NodeID = "node-1"
+	resp.Body = []byte(remoteErrorPathUnavailable)
+
+	res, err := NewPhpFileList("/missing").Parse(context.Background(), resp)
+	if res != nil || !core.IsKind(err, core.ErrRemoteRuntime) {
+		t.Fatalf("远端目录错误应返回 ErrRemoteRuntime: res=%v err=%v", res, err)
+	}
+}
+
+func TestParseFileRead_RemoteError(t *testing.T) {
+	for _, token := range []string{remoteErrorFileOpen, remoteErrorFileRead} {
+		resp := core.NewResponse()
+		resp.Body = []byte(token)
+		res, err := NewPhpFileRead("/missing").Parse(context.Background(), resp)
+		if res != nil || !core.IsKind(err, core.ErrRemoteRuntime) {
+			t.Fatalf("token=%q 应返回 ErrRemoteRuntime: res=%v err=%v", token, res, err)
+		}
+	}
+}
+
+func TestPhpFileDownload_BuildAndParse(t *testing.T) {
+	path := "/tmp/a b.bin"
+	op := NewPhpFileDownload(path)
+	if op.Name() != "file.download" || op.RiskLevel() != core.RiskReadOnly {
+		t.Fatalf("download 名称/风险不正确")
+	}
+	req, err := op.Build(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Build 出错: %v", err)
+	}
+	for _, value := range req.Params {
+		decoded, decodeErr := stdbase64.StdEncoding.DecodeString(string(value))
+		if decodeErr != nil || string(decoded) != path {
+			t.Fatalf("download 路径 base64 不正确: %q %v", decoded, decodeErr)
+		}
+	}
+	body := []byte{0x00, '0', 0xff}
+	resp := core.NewResponse()
+	resp.Body = body
+	result, err := op.Parse(context.Background(), resp)
+	if err != nil {
+		t.Fatalf("Parse 出错: %v", err)
+	}
+	file := result.(*core.FileReadResult)
+	if file.OperationName() != "file.download" || string(file.Data) != string(body) {
+		t.Fatalf("download 结果不正确: %+v", file)
+	}
+}
+
+func TestPhpFileDownload_RemoteError(t *testing.T) {
+	resp := core.NewResponse()
+	resp.Body = []byte(remoteErrorFileOpen)
+	res, err := NewPhpFileDownload("/missing").Parse(context.Background(), resp)
+	if res != nil || !core.IsKind(err, core.ErrRemoteRuntime) {
+		t.Fatalf("download 错误应返回 ErrRemoteRuntime: res=%v err=%v", res, err)
 	}
 }
 
@@ -283,8 +344,8 @@ func TestPhpFileUpload_Build_Base64EncodesContent(t *testing.T) {
 
 func TestPhpFileUpload_Parse(t *testing.T) {
 	cases := []struct {
-		body    string
-		wantOK  bool
+		body   string
+		wantOK bool
 	}{
 		{"1", true},
 		{"0", false},
@@ -339,13 +400,15 @@ func TestPhpFileList_Build(t *testing.T) {
 	if req.Operation != "file.list" {
 		t.Fatalf("Operation 应为 file.list，got %q", req.Operation)
 	}
-	// 占位符应被 SetParam 填充
 	if len(req.Params) == 0 {
 		t.Fatal("Params 不应为空（应有占位符键）")
 	}
 	for k, v := range req.Params {
-		if string(v) != "/var/www" {
-			t.Fatalf("占位符 %q 应被填充为 /var/www，got %q", k, v)
+		if string(v) != stdbase64.StdEncoding.EncodeToString([]byte("/var/www")) {
+			t.Fatalf("占位符 %q 应填充 base64 路径，got %q", k, v)
+		}
+		if !contains(string(req.Payload), `$_POST["`+k+`"]`) {
+			t.Fatalf("payload 应引用同一个随机字段 %q", k)
 		}
 	}
 }
@@ -354,20 +417,27 @@ func TestPhpFileList_DefaultPath(t *testing.T) {
 	op := NewPhpFileList("")
 	req, _ := op.Build(context.Background(), nil)
 	for _, v := range req.Params {
-		if string(v) != "/" {
-			t.Fatalf("空路径应默认为 /，got %q", v)
+		if string(v) != "Lw==" {
+			t.Fatalf("空路径应默认为 / 的 base64，got %q", v)
 		}
 	}
 }
 
 func TestPhpFileRead_Build(t *testing.T) {
-	op := NewPhpFileRead("/etc/hosts")
+	path := `C:\\临时目录\\a b.txt`
+	op := NewPhpFileRead(path)
 	req, err := op.Build(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Build 出错: %v", err)
 	}
 	if req.Operation != "file.read" {
 		t.Fatalf("Operation 应为 file.read，got %q", req.Operation)
+	}
+	for _, value := range req.Params {
+		decoded, decodeErr := stdbase64.StdEncoding.DecodeString(string(value))
+		if decodeErr != nil || string(decoded) != path {
+			t.Fatalf("路径 base64 不正确: decoded=%q err=%v", decoded, decodeErr)
+		}
 	}
 }
 

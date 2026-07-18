@@ -1,5 +1,6 @@
 // Package logging 为每个请求输出一行结构化日志。出于安全，
-//  默认不会记录 password / token / 文件全文 / 未脱敏命令参数。
+//
+//	默认不会记录 password / token / 文件全文 / 未脱敏命令参数。
 package logging
 
 import (
@@ -43,20 +44,21 @@ func Middleware(opts ...Option) core.Middleware {
 			}
 			resp, err := next(ctx, req)
 			dur := time.Since(start)
+			status := 0
+			if resp != nil {
+				status = resp.StatusCode
+			}
 			if err != nil {
 				_ = &core.OpError{} // 保留 errors.As 的能力
 				cfg.Logger.Error("remote_node_request",
 					"operation", op,
 					"node", node,
+					"status", status,
 					"duration_ms", dur.Milliseconds(),
 					"error", err.Error(),
 					"payload", payload,
 				)
 				return resp, err
-			}
-			status := 0
-			if resp != nil {
-				status = resp.StatusCode
 			}
 			cfg.Logger.Info("remote_node_request",
 				"operation", op,
@@ -75,7 +77,11 @@ type Option func(*Options)
 
 // WithLogger 覆盖默认 logger。
 func WithLogger(l *slog.Logger) Option {
-	return func(o *Options) { if l != nil { o.Logger = l } }
+	return func(o *Options) {
+		if l != nil {
+			o.Logger = l
+		}
+	}
 }
 
 // WithPayloadLogging 开启截断后的 payload 日志。

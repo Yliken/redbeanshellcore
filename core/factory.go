@@ -35,12 +35,13 @@ func (b *defaultBuilder) NewClient(ctx context.Context, record *NodeRecord) (*Cl
 		return nil, err
 	}
 	sess := &Session{
-		NodeID:    record.Config.ID,
-		Endpoint:  record.Config.Endpoint,
-		Adapter:   record.Config.Adapter,
-		Transport: record.Config.Transport,
-		Codec:     record.Config.Codec,
-		Metadata:  record.Metadata,
+		NodeID:       record.Config.ID,
+		Endpoint:     record.Config.Endpoint,
+		Adapter:      record.Config.Adapter,
+		Transport:    record.Config.Transport,
+		Codec:        record.Config.Codec,
+		Capabilities: append([]Capability(nil), record.Capabilities...),
+		Metadata:     mergeMaps(record.Metadata, nil),
 	}
 	// 把 Auth 合并到 metadata，让 Transport 自己按 key 读取。
 	if record.Config.Auth != nil {
