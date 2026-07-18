@@ -5,6 +5,7 @@ agentdemo/
 *.exe
 *.test
 *.out
+*_test.go
 vendor/
 
 # IDE
