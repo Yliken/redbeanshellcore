@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/Yliken/redbeanshellcore/core"
@@ -228,5 +229,99 @@ func TestPut_NilRecord(t *testing.T) {
 	err := r.Put(context.Background(), nil)
 	if err == nil {
 		t.Fatal("Put(nil) 应返回错误")
+	}
+}
+
+func TestDeepCloneIsolation(t *testing.T) {
+	registry, _ := newFileRegistry(t)
+	ctx := context.Background()
+	record := &core.NodeRecord{
+		Config: core.NodeConfig{
+			ID:      "n1",
+			Auth:    map[string]string{"field": "a"},
+			Options: map[string]string{"tls": "false"},
+			Tags:    []string{"lab"},
+		},
+		Capabilities: []core.Capability{core.CapInfo},
+		Metadata:     map[string]string{"os": "Linux"},
+	}
+	if err := registry.Put(ctx, record); err != nil {
+		t.Fatalf("Put 失败: %v", err)
+	}
+	record.Config.Auth["field"] = "changed"
+	record.Config.Options["tls"] = "changed"
+	record.Config.Tags[0] = "changed"
+	record.Capabilities[0] = core.CapExec
+	record.Metadata["os"] = "changed"
+
+	got, _ := registry.Get(ctx, "n1")
+	if got.Config.Auth["field"] != "a" || got.Config.Options["tls"] != "false" || got.Config.Tags[0] != "lab" || got.Capabilities[0] != core.CapInfo || got.Metadata["os"] != "Linux" {
+		t.Fatalf("Put 输入未隔离: %+v", got)
+	}
+	got.Metadata["os"] = "mutated"
+	got.Config.Tags[0] = "mutated"
+	again, _ := registry.Get(ctx, "n1")
+	if again.Metadata["os"] != "Linux" || again.Config.Tags[0] != "lab" {
+		t.Fatalf("Get 输出未隔离: %+v", again)
+	}
+}
+
+func TestLoadRejectsNullRecord(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "nodes.json")
+	if err := os.WriteFile(path, []byte(`[null]`), 0o600); err != nil {
+		t.Fatalf("写测试文件失败: %v", err)
+	}
+	if _, err := New(path); err == nil {
+		t.Fatal("包含 null record 的 JSON 应返回错误")
+	}
+}
+
+func TestConcurrentPutPersistsAllRecords(t *testing.T) {
+	registry, path := newFileRegistry(t)
+	ctx := context.Background()
+	const count = 20
+	var wait sync.WaitGroup
+	errorsCh := make(chan error, count)
+	for index := 0; index < count; index++ {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			errorsCh <- registry.Put(ctx, &core.NodeRecord{Config: core.NodeConfig{ID: string(rune('a' + index))}})
+		}(index)
+	}
+	wait.Wait()
+	close(errorsCh)
+	for err := range errorsCh {
+		if err != nil {
+			t.Fatalf("并发 Put 失败: %v", err)
+		}
+	}
+	reloaded, err := New(path)
+	if err != nil {
+		t.Fatalf("重新加载失败: %v", err)
+	}
+	records, err := reloaded.List(ctx, core.NodeFilter{})
+	if err != nil || len(records) != count {
+		t.Fatalf("持久化记录不完整: count=%d err=%v", len(records), err)
+	}
+	leftovers, err := filepath.Glob(path + ".tmp-*")
+	if err != nil || len(leftovers) != 0 {
+		t.Fatalf("不应残留临时文件: %v err=%v", leftovers, err)
+	}
+}
+
+func TestPutRollsBackWhenFlushFails(t *testing.T) {
+	directory := t.TempDir()
+	registry := &Registry{
+		path:    filepath.Join(directory, "missing", "nodes.json"),
+		records: make(map[string]*core.NodeRecord),
+	}
+	err := registry.Put(context.Background(), &core.NodeRecord{Config: core.NodeConfig{ID: "n1"}})
+	if err == nil {
+		t.Fatal("临时目录不存在时 Put 应失败")
+	}
+	if _, getErr := registry.Get(context.Background(), "n1"); !core.IsKind(getErr, core.ErrNotFound) {
+		t.Fatalf("flush 失败后内存修改应回滚，got %v", getErr)
 	}
 }

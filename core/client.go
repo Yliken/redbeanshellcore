@@ -2,23 +2,29 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net"
+	"reflect"
+	"strings"
 	"time"
 )
 
 // Client 是访问单个远端节点的顶层入口。
-//  它执行完整的请求生命周期：
+// 它执行完整的请求生命周期：
 //
 //	Operation.Build
 //	  -> Codec.EncodeRequest
 //	  -> Envelope.Wrap
 //	  -> Transform.ApplyRequest
 //	  -> Middleware Chain
-//	  -> Transport.RoundTrip
-//	  -> Transform.ApplyResponse
-//	  -> Envelope.Extract
-//	  -> Codec.DecodeResponse
-//	  -> Operation.Parse
+//	     -> Transport.RoundTrip
+//	     -> Transform.ApplyResponse
+//	     -> Envelope.Extract
+//	     -> Codec.DecodeResponse
+//	     -> Operation.Parse
+//
+// Middleware 包裹完整的响应处理流程，因此能观察 HTTP 状态、解码和解析错误。
 type Client struct {
 	session     *Session
 	transport   Transport
@@ -29,14 +35,16 @@ type Client struct {
 }
 
 // NewClient 用功能选项的方式构建一个 Client。
-//  调用方通常至少需要 Transport、Codec、Envelope。
+// 调用方通常至少需要 Transport；Codec 和 Envelope 均为可选组件。
 func NewClient(opts ...Option) *Client {
 	c := &Client{
 		transforms:  make([]Transform, 0),
 		middlewares: make([]Middleware, 0),
 	}
 	for _, o := range opts {
-		o(c)
+		if o != nil {
+			o(c)
+		}
 	}
 	return c
 }
@@ -46,135 +54,195 @@ func (c *Client) Session() *Session { return c.session }
 
 // Do 执行单个 Operation，返回结构化的 Result。
 func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
-	if c.transport == nil {
-		return nil, NewOpError(ErrNetwork, op.Name(), c.nodeID(), "transport 未配置", nil)
+	if isNilInterface(op) {
+		return nil, NewOpError(ErrProtocol, "", c.nodeID(), "operation 不能为空", nil)
+	}
+	opName := op.Name()
+	if isNilInterface(c.transport) {
+		return nil, NewOpError(ErrNetwork, opName, c.nodeID(), "transport 未配置", nil)
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
-	// 把 node id 带到 context 中，方便中间件引用
+	// 把 node id 带到 context 中，方便中间件引用。
 	ctx = ContextWithNode(ctx, c.nodeID())
 
-	// 1. 构建
+	// 1. 构建请求。
 	req, err := op.Build(ctx, c.session)
 	if err != nil {
-		return nil, wrapBuildError(op, c.nodeID(), err)
+		return nil, wrapBuildError(opName, c.nodeID(), err)
 	}
 	if req == nil {
-		return nil, NewOpError(ErrProtocol, op.Name(), c.nodeID(), "operation.Build 返回了 nil", nil)
+		return nil, NewOpError(ErrProtocol, opName, c.nodeID(), "operation.Build 返回了 nil", nil)
+	}
+	if req.Operation == "" {
+		req.Operation = opName
 	}
 	req.NodeID = c.nodeID()
 
-	// 注入审计用元数据
-	req.Meta["operation"] = op.Name()
-	req.Meta["node_id"] = c.nodeID()
-	req.Meta["ts"] = time.Now().UTC().Format(time.RFC3339)
-	if c.codec != nil {
-		req.Meta["codec"] = c.codec.Name()
+	// 注入审计用元数据。
+	req.SetMeta("operation", opName)
+	req.SetMeta("node_id", c.nodeID())
+	req.SetMeta("ts", time.Now().UTC().Format(time.RFC3339))
+	if !isNilInterface(c.codec) {
+		req.SetMeta("codec", c.codec.Name())
 	}
 
-	// 生成不可预测的请求 ID，贯穿本次请求生命周期（日志、审计、响应关联）。
+	// 生成不可预测的请求 ID，贯穿本次请求生命周期。
 	if req.ID == "" {
 		req.ID = newRequestID()
 	}
 
 	// 把操作风险等级注入 req.Meta，让 Readonly 中间件能按 RiskLevel 拦截。
-	if aware, ok := op.(RiskAware); ok {
-		req.Meta["risk_level"] = string(aware.RiskLevel())
+	if aware, ok := op.(RiskAware); ok && !isNilInterface(aware) {
+		req.SetMeta("risk_level", string(aware.RiskLevel()))
 	}
 
-	// 把 session metadata 合并到 req.Meta，让 transport 能读到
-	// auth_password_field / password_value 等字段。
+	// session metadata 只补充缺失键，不覆盖 Operation.Build 已提供的值。
 	if c.session != nil {
 		for k, v := range c.session.Metadata {
 			if _, ok := req.Meta[k]; !ok {
-				req.Meta[k] = v
+				req.SetMeta(k, v)
 			}
 		}
 	}
 
-	// 2. 编码（可选）
-	if c.codec != nil {
+	// 2. 编码（可选）。
+	if !isNilInterface(c.codec) {
 		req, err = c.codec.EncodeRequest(ctx, req)
 		if err != nil {
-			return nil, wrapError(ErrEncode, op.Name(), c.nodeID(), "codec 编码失败", err)
+			return nil, wrapError(ErrEncode, opName, c.nodeID(), "codec 编码失败", err)
+		}
+		if req == nil {
+			return nil, NewOpError(ErrEncode, opName, c.nodeID(), "codec.EncodeRequest 返回了 nil", nil)
 		}
 	}
 
-	// 3. 加边界（可选）
-	if c.envelope != nil {
+	// 3. 加边界（可选）。
+	if !isNilInterface(c.envelope) {
 		req, err = c.envelope.Wrap(ctx, req)
 		if err != nil {
-			return nil, wrapError(ErrEnvelope, op.Name(), c.nodeID(), "envelope wrap 失败", err)
+			return nil, wrapError(ErrEnvelope, opName, c.nodeID(), "envelope wrap 失败", err)
+		}
+		if req == nil {
+			return nil, NewOpError(ErrEnvelope, opName, c.nodeID(), "envelope.Wrap 返回了 nil", nil)
 		}
 	}
 
-	// 4. 应用请求方向的 Transform
-	for _, t := range c.transforms {
-		if t.Direction() == TransformRequest || t.Direction() == TransformBoth {
-			req, err = t.ApplyRequest(ctx, req)
-			if err != nil {
-				return nil, wrapError(ErrEncode, op.Name(), c.nodeID(), "transform 请求失败: "+t.Name(), err)
+	// 4. 应用请求方向的 Transform。
+	for _, transform := range c.transforms {
+		if isNilInterface(transform) {
+			return nil, NewOpError(ErrEncode, opName, c.nodeID(), "transform 不能为空", nil)
+		}
+		direction := transform.Direction()
+		if direction != TransformRequest && direction != TransformBoth {
+			continue
+		}
+		req, err = transform.ApplyRequest(ctx, req)
+		if err != nil {
+			return nil, wrapError(ErrEncode, opName, c.nodeID(), "transform 请求失败: "+transform.Name(), err)
+		}
+		if req == nil {
+			return nil, NewOpError(ErrEncode, opName, c.nodeID(), "transform.ApplyRequest 返回了 nil: "+transform.Name(), nil)
+		}
+	}
+
+	for _, middleware := range c.middlewares {
+		if isNilInterface(middleware) {
+			return nil, NewOpError(ErrProtocol, opName, c.nodeID(), "middleware 不能为空", nil)
+		}
+	}
+
+	var result Result
+	root := Handler(func(ctx context.Context, request *Request) (*Response, error) {
+		result = nil
+		resp, roundTripErr := c.transport.RoundTrip(ctx, request)
+		if resp != nil {
+			prepareResponse(resp, request, c.nodeID())
+		}
+		if roundTripErr != nil {
+			return resp, wrapError(ErrNetwork, opName, c.nodeID(), "transport round-trip 失败", roundTripErr)
+		}
+		if resp == nil {
+			return nil, NewOpError(ErrProtocol, opName, c.nodeID(), "transport.RoundTrip 返回了 nil", nil)
+		}
+
+		if resp.StatusCode >= 400 {
+			return resp, mapHTTPStatus(resp.StatusCode, opName, c.nodeID())
+		}
+
+		// 响应 Transform 按请求方向的相反顺序执行。
+		for i := len(c.transforms) - 1; i >= 0; i-- {
+			transform := c.transforms[i]
+			direction := transform.Direction()
+			if direction != TransformResponse && direction != TransformBoth {
+				continue
+			}
+			nextResp, applyErr := transform.ApplyResponse(ctx, resp)
+			if nextResp != nil {
+				resp = nextResp
+				prepareResponse(resp, request, c.nodeID())
+			}
+			if applyErr != nil {
+				return resp, wrapError(ErrDecode, opName, c.nodeID(), "transform 响应失败: "+transform.Name(), applyErr)
+			}
+			if nextResp == nil {
+				return resp, NewOpError(ErrDecode, opName, c.nodeID(), "transform.ApplyResponse 返回了 nil: "+transform.Name(), nil)
 			}
 		}
-	}
 
-	// 组装中间件链
-	next := Handler(func(ctx context.Context, r *Request) (*Response, error) {
-		resp, err := c.transport.RoundTrip(ctx, r)
-		if err != nil {
-			return nil, wrapError(ErrNetwork, op.Name(), c.nodeID(), "transport round-trip 失败", err)
+		if !isNilInterface(c.envelope) {
+			nextResp, extractErr := c.envelope.Extract(ctx, resp)
+			if nextResp != nil {
+				resp = nextResp
+				prepareResponse(resp, request, c.nodeID())
+			}
+			if extractErr != nil {
+				return resp, wrapError(ErrEnvelope, opName, c.nodeID(), "envelope extract 失败", extractErr)
+			}
+			if nextResp == nil {
+				return resp, NewOpError(ErrEnvelope, opName, c.nodeID(), "envelope.Extract 返回了 nil", nil)
+			}
 		}
-		resp.NodeID = c.nodeID()
+
+		if !isNilInterface(c.codec) {
+			nextResp, decodeErr := c.codec.DecodeResponse(ctx, resp)
+			if nextResp != nil {
+				resp = nextResp
+				prepareResponse(resp, request, c.nodeID())
+			}
+			if decodeErr != nil {
+				return resp, wrapError(ErrDecode, opName, c.nodeID(), "codec 解码失败", decodeErr)
+			}
+			if nextResp == nil {
+				return resp, NewOpError(ErrDecode, opName, c.nodeID(), "codec.DecodeResponse 返回了 nil", nil)
+			}
+		}
+
+		parsed, parseErr := op.Parse(ctx, resp)
+		if parseErr != nil {
+			return resp, wrapError(ErrParse, opName, c.nodeID(), "operation parse 失败", parseErr)
+		}
+		if isNilInterface(parsed) {
+			return resp, NewOpError(ErrParse, opName, c.nodeID(), "operation.Parse 返回了 nil", nil)
+		}
+		result = parsed
 		return resp, nil
 	})
+
+	next := root
 	if len(c.middlewares) > 0 {
-		next = Chain(next, c.middlewares...)
+		next = Chain(root, c.middlewares...)
 	}
-
-	// 5. 跑链
-	resp, err := next(ctx, req)
+	_, err = next(ctx, req)
 	if err != nil {
-		return nil, err
+		return nil, wrapError(ErrNetwork, opName, c.nodeID(), "middleware chain 失败", err)
 	}
-
-	// 在回包进入解析前，先把 HTTP 状态码映射为 SDK 错误，
-	//   避免 4xx/5xx 被当成成功结果。
-	if resp != nil && resp.StatusCode >= 400 {
-		return nil, mapHTTPStatus(resp.StatusCode, op.Name(), c.nodeID())
+	if isNilInterface(result) {
+		return nil, NewOpError(ErrProtocol, opName, c.nodeID(), "middleware 未执行完整操作流程", nil)
 	}
-
-	// 6. 应用响应方向的 Transform（倒序）
-	for i := len(c.transforms) - 1; i >= 0; i-- {
-		t := c.transforms[i]
-		if t.Direction() == TransformResponse || t.Direction() == TransformBoth {
-			resp, err = t.ApplyResponse(ctx, resp)
-			if err != nil {
-				return nil, wrapError(ErrDecode, op.Name(), c.nodeID(), "transform 响应失败: "+t.Name(), err)
-			}
-		}
-	}
-
-	// 7. 解开边界（可选）
-	if c.envelope != nil {
-		resp, err = c.envelope.Extract(ctx, resp)
-		if err != nil {
-			return nil, wrapError(ErrEnvelope, op.Name(), c.nodeID(), "envelope extract 失败", err)
-		}
-	}
-
-	// 8. 解码（可选）
-	if c.codec != nil {
-		resp, err = c.codec.DecodeResponse(ctx, resp)
-		if err != nil {
-			return nil, wrapError(ErrDecode, op.Name(), c.nodeID(), "codec 解码失败", err)
-		}
-	}
-
-	// 9. 解析
-	res, err := op.Parse(ctx, resp)
-	if err != nil {
-		return nil, wrapError(ErrParse, op.Name(), c.nodeID(), "operation parse 失败", err)
-	}
-	return res, nil
+	return result, nil
 }
 
 func (c *Client) nodeID() string {
@@ -184,21 +252,81 @@ func (c *Client) nodeID() string {
 	return c.session.NodeID
 }
 
-func wrapBuildError(op Operation, nodeID string, err error) error {
-	return wrapError(ErrProtocol, op.Name(), nodeID, "operation build 失败", err)
-}
-
-func wrapError(kind ErrorKind, opName, nodeID, msg string, cause error) error {
-	if opErr, ok := cause.(*OpError); ok {
-		// 保留已经包装过的内部 OpError
-		return opErr
+func prepareResponse(resp *Response, req *Request, nodeID string) {
+	if resp.RequestID == "" {
+		resp.RequestID = req.ID
 	}
-	return NewOpError(kind, opName, nodeID, msg, cause)
+	resp.NodeID = nodeID
+	if resp.Headers == nil {
+		resp.Headers = make(map[string]string)
+	}
+	if resp.Meta == nil {
+		resp.Meta = make(map[string]string)
+	}
+	for key, value := range req.Meta {
+		if !strings.HasPrefix(key, "marker.") {
+			continue
+		}
+		if _, exists := resp.Meta[key]; !exists {
+			resp.Meta[key] = value
+		}
+	}
 }
 
-// 下面这仨 var 是给未来字段扩容时提醒的占位；让 import 保留
-// fmt 字段。如果哪天字段被删了需要把 _=fmt.Sprintf 删掉。
-var _ = fmt.Sprintf
+func wrapBuildError(opName, nodeID string, err error) error {
+	return wrapError(ErrProtocol, opName, nodeID, "operation build 失败", err)
+}
+
+func wrapError(kind ErrorKind, opName, nodeID, message string, cause error) error {
+	if cause == nil {
+		return NewOpError(kind, opName, nodeID, message, nil)
+	}
+	var existing *OpError
+	if errors.As(cause, &existing) {
+		copyErr := *existing
+		if copyErr.Kind == "" {
+			copyErr.Kind = kind
+		}
+		if copyErr.Operation == "" {
+			copyErr.Operation = opName
+		}
+		if copyErr.NodeID == "" {
+			copyErr.NodeID = nodeID
+		}
+		if copyErr.Message == "" {
+			copyErr.Message = message
+		}
+		if copyErr.Kind == ErrNetwork && isTimeoutError(cause) {
+			copyErr.Kind = ErrTimeout
+		}
+		return &copyErr
+	}
+	if isTimeoutError(cause) {
+		kind = ErrTimeout
+	}
+	return NewOpError(kind, opName, nodeID, message, cause)
+}
+
+func isTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+func isNilInterface(value any) bool {
+	if value == nil {
+		return true
+	}
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return rv.IsNil()
+	default:
+		return false
+	}
+}
 
 // mapHTTPStatus 把 HTTP 状态码映射为对应的 SDK 错误分类。
 func mapHTTPStatus(code int, op, node string) *OpError {

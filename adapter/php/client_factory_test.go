@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Yliken/redbeanshellcore/core"
+	"github.com/Yliken/redbeanshellcore/ops"
 )
 
 func TestWrapOp_Info(t *testing.T) {
@@ -48,6 +49,66 @@ func TestWrapOp_Exec(t *testing.T) {
 	}
 	if _, ok := out.(*phpExec); !ok {
 		t.Fatalf("exec 应被替换为 *phpExec，got %T", out)
+	}
+}
+
+func TestWrapOp_PreservesExistingPHPOperation(t *testing.T) {
+	factory := NewClientFactory()
+	original := NewPhpFileList("/tmp/keep")
+	wrapped, err := factory.WrapOp(original)
+	if err != nil || wrapped != original {
+		t.Fatalf("已有 PHP operation 应保持对象身份: wrapped=%p original=%p err=%v", wrapped, original, err)
+	}
+}
+
+func TestWrapOp_TranslatesGenericArguments(t *testing.T) {
+	factory := NewClientFactory()
+
+	list, err := factory.WrapOp(ops.NewFileList("/tmp/list"))
+	if err != nil || list.(*phpFileList).target != "/tmp/list" {
+		t.Fatalf("file.list path 丢失: op=%+v err=%v", list, err)
+	}
+	read, err := factory.WrapOp(ops.NewFileRead("/tmp/read"))
+	if err != nil || read.(*phpFileRead).target != "/tmp/read" {
+		t.Fatalf("file.read path 丢失: op=%+v err=%v", read, err)
+	}
+	download, err := factory.WrapOp(ops.NewFileDownload("/tmp/download"))
+	if err != nil || download.(*phpFileDownload).target != "/tmp/download" {
+		t.Fatalf("file.download path 丢失: op=%+v err=%v", download, err)
+	}
+	genericExec := ops.NewExecWithBin("whoami", "/bin/bash")
+	genericExec.Env = map[string]string{"FOO": "bar"}
+	execOp, err := factory.WrapOp(genericExec)
+	if err != nil {
+		t.Fatalf("exec 转换失败: %v", err)
+	}
+	translated := execOp.(*phpExec)
+	if translated.cmd != "whoami" || translated.bin != "/bin/bash" || translated.envars["FOO"] != "bar" {
+		t.Fatalf("exec 参数丢失: %+v", translated)
+	}
+	genericExec.Env["FOO"] = "changed"
+	if translated.envars["FOO"] != "bar" {
+		t.Fatal("转换后的 env 不应与通用 operation 共享 map")
+	}
+}
+
+func TestWrapOp_CustomBuiltinNamePassthrough(t *testing.T) {
+	factory := NewClientFactory()
+	custom := &passthroughOp{name: "exec"}
+	wrapped, err := factory.WrapOp(custom)
+	if err != nil || wrapped != custom {
+		t.Fatalf("同名自定义 operation 不应被误转换: wrapped=%T err=%v", wrapped, err)
+	}
+}
+
+func TestWrapOp_NilOperation(t *testing.T) {
+	factory := NewClientFactory()
+	if _, err := factory.WrapOp(nil); err == nil {
+		t.Fatal("nil operation 应返回错误")
+	}
+	var typedNil *ops.ExecOperation
+	if _, err := factory.WrapOp(typedNil); err == nil {
+		t.Fatal("typed nil operation 应返回错误")
 	}
 }
 

