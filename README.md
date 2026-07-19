@@ -5,7 +5,7 @@
 [![Go](https://img.shields.io/badge/go-1.21+-blue.svg)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-*"红豆生南国，此物最相思。" — 我想你了，shell。*
+*"红豆生南国，春来发几枝。"*
 
 ---
 
