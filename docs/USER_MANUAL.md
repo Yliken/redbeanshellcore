@@ -159,6 +159,73 @@ core.WithEnvelope(marker.NewWithWire())           // 启用 Wire Protocol（RBS1
 ---
 
 ## 6.1 Wire Protocol
+P1.1 实现了版本化、结构化、带认证的 Wire Protocol：
+
+- **请求**：表单自动添加 _v（版本号）、_rid（请求 ID）、_ts（时间戳）、_nonce（随机数）、_sig（HMAC-SHA256 签名）
+- **响应**：PHP 输出 RBS1.0 协议头，包含 RID/TS/NONCE/STATUS/SIG/BODY 结构化字段
+- **完整性**：HMAC-SHA256 对请求 payload 签名，对响应 body 验证
+- **防重放**：每个请求携带 nonce + 时间戳
+
+### 启用方式
+
+`go
+// 直接构造 Client
+env := marker.NewWithWire()
+tr := httpform.NewWithOptions(endpoint, httpform.Options{WireProtocol: true})
+client := core.NewClient(
+    core.WithSession(sess),
+    core.WithTransport(tr),
+    core.WithEnvelope(env),
+)
+`
+
+通过 NodeConfig 配置（推荐）：
+`go
+Options: map[string]string{
+    "wire_protocol": "true",
+    "hmac_key":      "my-secret",
+}
+`
+
+### 请求协议字段
+
+| 字段 | 说明 |
+|------|------|
+| _v | 协议版本号（当前为 1） |
+| _rid | 请求 ID（16 字节 hex） |
+| _ts | Unix 毫秒时间戳 |
+| _nonce | 随机 16 字节 hex，防重放 |
+| _sig | HMAC-SHA256 签名（空字符串表示跳过） |
+
+### 响应协议格式
+
+`
+<tag_s>
+RBS1.0
+RID=<request_id>
+TS=<timestamp>
+NONCE=<nonce>
+STATUS=<0|error_code>
+SIG=<HMAC-SHA256>
+BODY
+<actual output>
+<tag_e>
+`
+
+### NodeConfig 配置项
+
+| Option | 说明 |
+|--------|------|
+| wire_protocol | "true" 启用 Wire Protocol |
+| hmac_key | HMAC-SHA256 签名密钥，为空则跳过签名 |
+
+### Session Metadata
+
+| Key | 说明 |
+|-----|------|
+| payload_form_field | 主 payload 的 POST 字段名（默认 ntpwd），向后兼容 uth_password_field |
+| hmac_key | Wire Protocol HMAC-SHA256 签名密钥 |
+
 ## 7. Middleware
 
 按注册顺序包裹请求链。Middleware 包裹 Transport、HTTP 状态映射、响应 Transform、Envelope、Codec 和 Operation.Parse，因此 logging/audit/retry 能观察最终响应错误；Operation.Build 和请求编码仍发生在链外。
