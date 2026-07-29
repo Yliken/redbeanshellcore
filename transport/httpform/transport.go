@@ -1,8 +1,8 @@
-// Package httpform 实现把 POST 请求以 application/x-www-form-urlencoded
+﻿// Package httpform 实现把 POST 请求以 application/x-www-form-urlencoded
 // 形式发出去的 Transport，行为上对应 AntSword 的 PHP 客户端。
 //
 // req.Params 里的值会原样成为表单字段；需要 base64 等协议编码时，
-// 由对应 Operation 在构建 Request 时完成。Metadata 里的 auth_password_field
+// 由对应 Operation 在构建 Request 时完成。Metadata 里的 payload_form_field
 // 决定哪个字段携带主 payload。
 //
 // ⚠️ 仅用于授权的实验室环境。InsecureTLS 默认关闭，调用方需自行显式开启。
@@ -23,6 +23,7 @@ import (
 
 	"github.com/Yliken/redbeanshellcore/core"
 	"github.com/Yliken/redbeanshellcore/transport/useragent"
+	"github.com/Yliken/redbeanshellcore/protocol/wire"
 )
 
 const (
@@ -98,6 +99,8 @@ type Options struct {
 	// P0.10 — 代理链与出口 IP 轮换
 	ProxyChain         []ProxyConfig
 	ProxyRotation       bool
+	// P1.1 — Wire Protocol
+	WireProtocol bool
 }
 
 // DefaultOptions 返回默认的传输层选项。
@@ -116,6 +119,7 @@ func DefaultOptions() Options {
 		IdleConnTimeout:     90 * time.Second,
 		EnableCookieJar:     true,
 		ProxyRotation:       false,
+	WireProtocol: false,
 		TLSFingerprint: TLSFingerprint{
 			Enabled:       false,
 			MinTLSVersion: tls.VersionTLS12,
@@ -388,16 +392,28 @@ func (t *Transport) buildForm(req *core.Request) (url.Values, error) {
 		}
 	}
 
+
+	// P1.1 — Wire Protocol 字段
+	if t.Options.WireProtocol {
+		key := req.Meta["hmac_key"]
+		env := wire.NewRequestEnvelope(req.ID, string(req.Payload), key)
+		for k, v := range env.FormFields() {
+			form.Set(k, v)
+		}
+	}
+
 	return form, nil
 }
 
 // resolvePayloadField 解析主 payload 字段名（P0.3）。
+// 优先使用 payload_form_field，向后兼容旧的 auth_password_field key 名称。
 func (t *Transport) resolvePayloadField(req *core.Request) string {
 	// 优先使用 session metadata 指定的字段名
-	if field := req.Meta["auth_password_field"]; field != "" {
+	if field := req.Meta["payload_form_field"]; field != "" {
 		return field
 	}
-	if field := req.Meta["payload_form_field"]; field != "" {
+	// 向后兼容旧的 key 名称（auth_password_field）
+	if field := req.Meta["auth_password_field"]; field != "" {
 		return field
 	}
 
@@ -419,7 +435,6 @@ func (t *Transport) getHoneypot() *HoneypotFields {
 	}
 	return t.Options.honeypot
 }
-
 // setHeaders 设置 HTTP 请求头，集成 P0.1（UA 轮换）。
 func (t *Transport) setHeaders(httpReq *http.Request, req *core.Request) {
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")

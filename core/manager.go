@@ -27,7 +27,7 @@ type NodeConfig struct {
 	Transport string            // 传输类型（httpform / mock / …）
 	Codec     string            // 编码方式
 	Envelope  string            // 边界协议
-	Auth      map[string]string // 认证字段映射，常用键 "auth_password_field" 指定远端
+	Auth      map[string]string // 认证字段映射，常用键 "payload_form_field" 指定远端
 	//   PHP 主 payload 的 POST 字段名（对应 AntSword 密码字段）
 	Options map[string]string // adapter / transport 扩展配置
 	Tags    []string          // 标签，用于查询 / 分组

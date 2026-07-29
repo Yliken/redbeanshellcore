@@ -1,5 +1,6 @@
 # 个人测试模块，不发布
 agentdemo/
+examples/
 
 .claude/
 ./PROJECT_REVIEW.md
