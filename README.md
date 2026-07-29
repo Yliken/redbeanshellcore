@@ -16,6 +16,7 @@
 核心能力：
 
 - **模板生成**：内置 AntSword PHP 模板移植，payload 自动生成
+- **函数名混淆**：strrev/substr/chr 等多策略，消除流量中函数名特征
 - **请求封装**：base64 编码内联、参数归一化
 - **编解码**：plain / base64 codec，可扩展
 - **传输层**：HTTP form POST，可扩展自定义 Transport
@@ -40,7 +41,7 @@ client := core.NewClient(
         NodeID: "lab-01",
         Endpoint: "https://lab.example/shell.php",
         Adapter: "php",
-        Metadata: map[string]string{"auth_password_field": "antpwd"},
+        Metadata: map[string]string{"payload_form_field": "antpwd"},
     }),
     core.WithTransport(httpform.New("https://lab.example/shell.php")),
 )

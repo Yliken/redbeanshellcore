@@ -45,7 +45,7 @@ client := core.NewClient(
         NodeID:   "lab-01",
         Endpoint: "https://lab.example/shell.php",
         Adapter:  "php",
-        Metadata: map[string]string{"auth_password_field": "antpwd"},
+        Metadata: map[string]string{"payload_form_field（或向后兼容的 auth_password_field）": "antpwd"},
     }),
     core.WithTransport(httpform.New("https://lab.example/shell.php")),
     // PHP eval 端默认使用 plain codec；只有远端明确支持对应协议时才启用其他 Codec。
@@ -61,7 +61,7 @@ res, err := client.Do(ctx, operation)
 
 | Key | 说明 |
 |-----|------|
-| `auth_password_field` | 密码 POST 字段名（默认 `antpwd`）。Transport 会把主 payload 写入这个字段 |
+| `payload_form_field（或向后兼容的 auth_password_field）` | 密码 POST 字段名（默认 `antpwd`）。Transport 会把主 payload 写入这个字段 |
 
 ---
 
@@ -151,11 +151,74 @@ core.WithCodec(base64.New()) // base64 编解码
 tag_s / tag_e 响应边界协议：
 
 ```go
-core.WithEnvelope(marker.New())        // 默认 16 字节
-core.WithEnvelope(marker.NewWithLength(32))
+core.WithEnvelope(marker.New())               // 默认 16 字节，无 Wire Protocol
+core.WithEnvelope(marker.NewWithLength(32))       // 自定义 tag 长度
+core.WithEnvelope(marker.NewWithWire())           // 启用 Wire Protocol（RBS1.0 + HMAC）
 ```
 
 ---
+
+## 6.1 Wire Protocol
+## 6.1 Wire Protocol
+
+P1.1 实现了版本化、结构化、带认证的 Wire Protocol：
+
+- **请求**：表单自动添加 `_v`（版本号）、`_rid`（请求 ID）、`_ts`（时间戳）、`_nonce`（随机数）、`_sig`（HMAC-SHA256 签名）
+- **响应**：PHP 输出 RBS1.0 协议头 + RID/TS/NONCE/STATUS/SIG/BODY 结构化格式
+- **完整性**：HMAC-SHA256 对请求 payload 签名，对响应 body 验证
+- **防重放**：每个请求携带 nonce + 时间戳
+
+### 启用方式
+
+```go
+// 直接构造 Client
+env := marker.NewWithWire()
+tr := httpform.NewWithOptions(endpoint, httpform.Options{WireProtocol: true})
+client := core.NewClient(
+    core.WithSession(sess),
+    core.WithTransport(tr),
+    core.WithEnvelope(env),
+)
+```
+
+### NodeConfig 配置项
+
+| Option | 说明 |
+|--------|------|
+| `wire_protocol` | `"true"` 启用 Wire Protocol |
+| `hmac_key` | HMAC-SHA256 签名密钥，为空则跳过签名 |
+
+### Session Metadata
+
+| Key | 说明 |
+|-----|------|
+| `payload_form_field` | 主 payload 的 POST 字段名（默认 `antpwd`），向后兼容 `auth_password_field` |
+| `hmac_key` | Wire Protocol HMAC-SHA256 签名密钥 |
+
+### 请求协议字段格式
+
+| 字段 | 说明 |
+|------|------|
+| `_v` | 协议版本号（当前为 `1`） |
+| `_rid` | 请求 ID（16 字节 hex） |
+| `_ts` | Unix 毫秒时间戳 |
+| `_nonce` | 随机 16 字节 hex，防重放 |
+| `_sig` | HMAC-SHA256 签名（空字符串表示跳过） |
+
+### 响应协议格式
+
+```
+<tag_s>
+RBS1.0
+RID=<request_id>
+TS=<timestamp>
+NONCE=<nonce>
+STATUS=<0|error_code>
+SIG=<HMAC-SHA256>
+BODY
+<actual output>
+<tag_e>
+```
 
 ## 7. Middleware
 
@@ -268,7 +331,7 @@ mgr.DoEach(ctx, filter, func(rec *NodeRecord) Operation {
 | Adapter | `php` / `mock` / 自定义 |
 | Transport | `httpform` / `mock` / 自定义 |
 | Auth | 认证字段 `{param: 密码字段名}` |
-| Options | 扩展配置 `{auth_password_field, insecure_tls}` |
+| Options | 扩展配置 `{payload_form_field（或向后兼容的 auth_password_field）, insecure_tls}` |
 | Tags | 标签列表 |
 | Group | 分组 |
 

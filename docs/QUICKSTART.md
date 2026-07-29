@@ -40,7 +40,7 @@ func main() {
             NodeID:    "lab-01",
             Endpoint:  "https://lab.example/shell.php",
             Adapter:   "php",
-            Metadata:  map[string]string{"auth_password_field": "antpwd"},
+            Metadata:  map[string]string{"payload_form_field": "antpwd"},
         }),
         core.WithTransport(tr),
     )
@@ -104,7 +104,7 @@ mgr := core.NewManager(memory.New(), phpshell.NewClientFactory())
 mgr.Register(ctx, core.NodeConfig{
     ID: "lab-a", Endpoint: "https://lab-a.example/shell.php",
     Adapter: "php", Transport: "httpform",
-    Auth:  map[string]string{"auth_password_field": "antpwd"},
+    Auth:  map[string]string{"payload_form_field": "antpwd"},
     Tags:  []string{"lab"}, Group: "case-001",
 })
 

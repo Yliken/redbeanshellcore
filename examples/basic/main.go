@@ -22,7 +22,7 @@ func main() {
 		Adapter:   "php",
 		Transport: "httpform",
 		Auth:      map[string]string{"param": "antpwd"},
-		Options:   map[string]string{"auth_password_field": "a"},
+		Options:   map[string]string{"payload_form_field": "a"},
 		Tags:      []string{"lab"},
 		Group:     "case-001",
 	})
@@ -34,7 +34,7 @@ func main() {
 		Adapter:   "php",
 		Transport: "httpform",
 		Auth:      map[string]string{"param": "chant"},
-		Options:   map[string]string{"auth_password_field": "a"},
+		Options:   map[string]string{"payload_form_field": "a"},
 		Tags:      []string{"lab"},
 		Group:     "case-001",
 	})
