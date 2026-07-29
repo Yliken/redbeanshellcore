@@ -3,6 +3,7 @@
 import (
 	"context"
 	"fmt"
+	"net"
 	"reflect"
 	"strconv"
 	"time"
@@ -90,6 +91,19 @@ func (f *ClientFactory) buildTransport(rec *core.NodeRecord) (*httpform.Transpor
 			if n, err := strconv.Atoi(v); err == nil && n > 0 {
 				opts.EnablePadding = true
 				opts.HoneypotCount = n
+			}
+		}
+
+		// P0.10 代理配置
+		if v, ok := rec.Config.Options["proxy"]; ok && v != "" {
+			host, portStr, err := net.SplitHostPort(v)
+			if err == nil {
+				port, portErr := strconv.Atoi(portStr)
+				if portErr == nil {
+					opts.ProxyChain = []httpform.ProxyConfig{
+						{Type: httpform.ProxyHTTP, Host: host, Port: port},
+					}
+				}
 			}
 		}
 

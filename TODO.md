@@ -44,9 +44,9 @@
 
 - [x] 消除 `|||askey|||`、`|||asline|||`、`ERROR://REDBEAN:*` 等固定文本标记
 - [x] 改用随机分隔符或长度分帧的结构化响应
-- [ ] 消除 `base64_decode`、`system`／`passthru` 等函数调用链的固定文本特征（待 P1 结构化协议）
+- [x] 消除 `base64_decode`、`system`／`passthru` 等函数调用链的固定文本特征
 
-**涉及文件**：`adapter/php/renderer.go`、`adapter/php/parser.go`、`adapter/php/operations.go`
+**涉及文件**：`adapter/php/renderer.go`、`adapter/php/operations.go`、`adapter/php/obfuscate.go`
 **状态**：✅ 部分完成。流量包验证：0/10 请求包含 `|||askey|||`/`|||asline|||`/`ERROR://REDBEAN`。`base64_decode` 和命令执行函数链是 PHP Shell 核心功能，需 P1 结构化协议消除。
 
 ### [ ] P0.5 请求正文填充与结构随机化

