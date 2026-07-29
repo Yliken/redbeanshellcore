@@ -1,25 +1,30 @@
 package php
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"strings"
 
 	"github.com/Yliken/redbeanshellcore/core"
 )
 
-const (
-	remoteErrorPathUnavailable = "ERROR://REDBEAN:PATH_UNAVAILABLE"
-	remoteErrorFileOpen        = "ERROR://REDBEAN:FILE_OPEN_FAILED"
-	remoteErrorFileRead        = "ERROR://REDBEAN:FILE_READ_FAILED"
-)
-
-var remoteErrorMessages = map[string]string{
-	remoteErrorPathUnavailable: "远端路径不存在或无权限",
-	remoteErrorFileOpen:        "远端文件无法打开",
-	remoteErrorFileRead:        "远端文件读取失败",
+// ErrorPrefix 为每次请求生成唯一的错误前缀，替代固定的 ERROR://REDBEAN。
+// 在 PHP 侧拼接到错误消息上，客户端按此前缀识别远端错误。
+type ErrorPrefix struct {
+	value string
 }
 
+// NewErrorPrefix 生成一个随机的 8 字节十六进制错误前缀。
+func NewErrorPrefix() ErrorPrefix {
+	buf := make([]byte, 8)
+	_, _ = rand.Read(buf)
+	return ErrorPrefix{value: "ERR:" + hex.EncodeToString(buf) + ":"}
+}
+
+// String 返回错误前缀字符串。
+func (e ErrorPrefix) String() string { return e.value }
+
 // Parser 把原始响应字节转成结构化的 core.Result。
-// 逻辑对应 Python demo 的 Decoder.decode + 各 operation 的后处理。
 type Parser struct{}
 
 // NewParser 构建一个 php Parser 实例。
@@ -33,19 +38,51 @@ func (p *Parser) PayloadFor(name string, fn func() (string, map[string]string)) 
 	return code, placeholders
 }
 
-// ParseInfo 是给 demo 测试用的便捷入口，避免直接 import ops。
+// ParseInfo 是给 demo 测试用的便捷入口。
 func (p *Parser) ParseInfo(body []byte) *core.InfoResult {
 	return &core.InfoResult{BaseResult: core.NewBaseResult("info", body)}
+}
+
+// RemoteErrorPrefix 返回当前请求的错误前缀，用于在响应中匹配远端错误。
+// 需要在 Operation.Build 中注入 req.Meta["remote_error_prefix"]。
+func RemoteErrorPrefix(resp *core.Response) string {
+	if resp == nil && resp.Meta == nil {
+		return ""
+	}
+	return resp.Meta["remote_error_prefix"]
 }
 
 func parseRemoteError(operation string, resp *core.Response) error {
 	if resp == nil {
 		return nil
 	}
-	token := strings.TrimSpace(string(resp.Body))
-	message, ok := remoteErrorMessages[token]
-	if !ok {
-		return nil
+	body := strings.TrimSpace(string(resp.Body))
+
+	// 兼容旧版固定错误标记
+	if strings.HasPrefix(body, "ERROR://REDBEAN:") {
+		msg := describeRedbeanError(body)
+		return core.NewOpError(core.ErrRemoteRuntime, operation, resp.NodeID, msg+" ("+body+")", nil)
 	}
-	return core.NewOpError(core.ErrRemoteRuntime, operation, resp.NodeID, message+" ("+token+")", nil)
+
+	// 新版动态错误前缀
+	prefix := resp.Meta["remote_error_prefix"]
+	if prefix != "" && strings.HasPrefix(body, prefix) {
+		return core.NewOpError(core.ErrRemoteRuntime, operation, resp.NodeID,
+			"远端返回错误: "+body, nil)
+	}
+
+	return nil
+}
+
+func describeRedbeanError(token string) string {
+	switch token {
+	case "ERROR://REDBEAN:PATH_UNAVAILABLE":
+		return "远端路径不存在或无权限"
+	case "ERROR://REDBEAN:FILE_OPEN_FAILED":
+		return "远端文件无法打开"
+	case "ERROR://REDBEAN:FILE_READ_FAILED":
+		return "远端文件读取失败"
+	default:
+		return "远端返回未知错误"
+	}
 }

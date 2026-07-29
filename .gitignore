@@ -2,6 +2,8 @@
 agentdemo/
 
 .claude/
+./PROJECT_REVIEW.md
+./TODO.md
 
 # Go
 *.exe

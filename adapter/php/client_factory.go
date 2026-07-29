@@ -1,9 +1,10 @@
-package php
+﻿package php
 
 import (
 	"context"
 	"fmt"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/Yliken/redbeanshellcore/core"
@@ -36,10 +37,6 @@ func (f *ClientFactory) NewClient(_ context.Context, rec *core.NodeRecord) (*cor
 		return nil, err
 	}
 
-	codec, err := f.buildCodec(rec)
-	if err != nil {
-		return nil, err
-	}
 
 	sess := &core.Session{
 		NodeID:       rec.Config.ID,
@@ -59,30 +56,81 @@ func (f *ClientFactory) NewClient(_ context.Context, rec *core.NodeRecord) (*cor
 	return core.NewClient(
 		core.WithSession(sess),
 		core.WithTransport(tr),
-		core.WithCodec(codec),
 	), nil
 }
+func (f *ClientFactory) buildTransport(rec *core.NodeRecord) (*httpform.Transport, error) {
+	opts := httpform.DefaultOptions()
+	opts.Timeout = 30 * time.Second
 
-func (f *ClientFactory) buildTransport(rec *core.NodeRecord) (core.Transport, error) {
+	// 解析扩展选项
+	if rec.Config.Options != nil {
+		if v, ok := rec.Config.Options["insecure_tls"]; ok && v == "true" {
+			opts.InsecureTLS = true
+		}
+		if v, ok := rec.Config.Options["timeout"]; ok {
+			if d, err := time.ParseDuration(v); err == nil {
+				opts.Timeout = d
+			}
+		}
+
+		// P0.1 — UA 轮换
+		if v, ok := rec.Config.Options["ua_rotation"]; ok && v == "true" {
+			opts.UARotation = true
+			opts.UAPool = nil // 将使用默认池
+		}
+
+		// P0.3 — 动态字段名
+		if v, ok := rec.Config.Options["dynamic_fields"]; ok && v == "true" {
+			opts.DynamicFieldNames = true
+			opts.FieldGen = httpform.NewFieldGenerator()
+		}
+
+		// P0.5 — 诱饵字段填充
+		if v, ok := rec.Config.Options["honeypot_count"]; ok {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				opts.EnablePadding = true
+				opts.HoneypotCount = n
+			}
+		}
+
+		// P0.6 — TLS 指纹随机化
+		if v, ok := rec.Config.Options["tls_fingerprint"]; ok && v == "true" {
+			opts.TLSFingerprint.Enabled = true
+		}
+
+		// P0.8 — 多协议协商
+		if v, ok := rec.Config.Options["http_protocol"]; ok {
+			switch v {
+			case "http1.1":
+				opts.Protocol = httpform.ProtocolHTTP11
+			case "http2":
+				opts.Protocol = httpform.ProtocolHTTP2
+			case "http3":
+				opts.Protocol = httpform.ProtocolHTTP3
+			}
+		}
+
+		// P0.9 — 连接池配置
+		if v, ok := rec.Config.Options["max_idle_conns"]; ok {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				opts.MaxIdleConns = n
+			}
+		}
+		if v, ok := rec.Config.Options["max_idle_per_host"]; ok {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				opts.MaxIdleConnsPerHost = n
+			}
+		}
+		if v, ok := rec.Config.Options["cookie_jar"]; ok && v == "false" {
+			opts.EnableCookieJar = false
+		}
+	}
+
 	switch rec.Config.Transport {
 	case "", "httpform":
-		tr := httpform.New(rec.Config.Endpoint)
-		tr.Timeout = 30 * time.Second
-		if rec.Config.Options["insecure_tls"] == "true" {
-			tr.InsecureTLS = true
-		}
-		return tr, nil
+		return httpform.NewWithOptions(rec.Config.Endpoint, opts), nil
 	default:
 		return nil, fmt.Errorf("php.ClientFactory: 不支持的 transport %q", rec.Config.Transport)
-	}
-}
-
-func (f *ClientFactory) buildCodec(rec *core.NodeRecord) (core.Codec, error) {
-	switch rec.Config.Codec {
-	case "", "plain":
-		return nil, nil
-	default:
-		return nil, fmt.Errorf("php.ClientFactory: 暂不支持 codec %q", rec.Config.Codec)
 	}
 }
 
