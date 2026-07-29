@@ -1,6 +1,8 @@
 # 个人测试模块，不发布
 agentdemo/
 
+.claude/
+
 # Go
 *.exe
 *.test
