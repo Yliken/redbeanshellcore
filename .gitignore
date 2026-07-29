@@ -1,4 +1,4 @@
-# 个人测试模块，不发布
+﻿# 个人测试模块，不发布
 agentdemo/
 examples/
 
@@ -21,3 +21,4 @@ vendor/
 # OS
 .DS_Store
 Thumbs.db
+.gocache/
