@@ -17,6 +17,7 @@
 
 - **模板生成**：内置 AntSword PHP 模板移植，payload 自动生成
 - **函数名混淆**：strrev/substr/chr 等多策略，消除流量中函数名特征
+- **Wire Protocol**：版本化结构化协议（RBS1.0），HMAC-SHA256 签名与完整性校验
 - **请求封装**：base64 编码内联、参数归一化
 - **编解码**：plain / base64 codec，可扩展
 - **传输层**：HTTP form POST，可扩展自定义 Transport
