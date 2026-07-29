@@ -168,7 +168,7 @@ P1.1 实现了版本化、结构化、带认证的 Wire Protocol：
 
 ### 启用方式
 
-`go
+```go
 // 直接构造 Client
 env := marker.NewWithWire()
 tr := httpform.NewWithOptions(endpoint, httpform.Options{WireProtocol: true})
@@ -177,15 +177,15 @@ client := core.NewClient(
     core.WithTransport(tr),
     core.WithEnvelope(env),
 )
-`
+```
 
 通过 NodeConfig 配置（推荐）：
-`go
+```go
 Options: map[string]string{
     "wire_protocol": "true",
     "hmac_key":      "my-secret",
 }
-`
+```
 
 ### 请求协议字段
 
@@ -199,7 +199,7 @@ Options: map[string]string{
 
 ### 响应协议格式
 
-`
+```
 <tag_s>
 RBS1.0
 RID=<request_id>
@@ -210,7 +210,7 @@ SIG=<HMAC-SHA256>
 BODY
 <actual output>
 <tag_e>
-`
+```
 
 ### NodeConfig 配置项
 
