@@ -35,6 +35,13 @@ func WithMiddleware(mws ...Middleware) Option {
 	return func(c *Client) { c.middlewares = append(c.middlewares, mws...) }
 }
 
+// WithCrypto 设置 Client 的流量加密组件。
+// 当设置了 Crypto，请求在发送前会先加密，响应在接收后会先解密。
+// 留空（不调用此选项）则不做加解密，与之前行为一致。
+func WithCrypto(cr Crypto) Option {
+	return func(c *Client) { c.crypto = cr }
+}
+
 type nodeKey struct{}
 
 // ContextWithNode 把 nodeID 注入到 context 中。

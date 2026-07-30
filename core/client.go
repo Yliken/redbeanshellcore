@@ -31,6 +31,7 @@ type Client struct {
 	transport   Transport
 	codec       Codec
 	envelope    Envelope
+	crypto      Crypto
 	transforms  []Transform
 	middlewares []Middleware
 }
@@ -169,9 +170,25 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 	var result Result
 	root := Handler(func(ctx context.Context, request *Request) (*Response, error) {
 		result = nil
+		// encrypt request before sending
+		if !isNilInterface(c.crypto) {
+			var encErr error
+			request, encErr = c.crypto.Encrypt(ctx, request)
+			if encErr != nil {
+				return nil, wrapError(ErrCrypto, opName, c.nodeID(), "crypto encrypt failed", encErr)
+			}
+		}
 		resp, roundTripErr := c.transport.RoundTrip(ctx, request)
 		if resp != nil {
 			prepareResponse(resp, request, c.nodeID())
+		}
+		// decrypt response after receiving
+		if resp != nil && !isNilInterface(c.crypto) {
+			var decErr error
+			resp, decErr = c.crypto.Decrypt(ctx, resp)
+			if decErr != nil {
+				return resp, wrapError(ErrCrypto, opName, c.nodeID(), "crypto decrypt failed", decErr)
+			}
 		}
 		if roundTripErr != nil {
 			return resp, wrapError(ErrNetwork, opName, c.nodeID(), "transport round-trip 失败", roundTripErr)

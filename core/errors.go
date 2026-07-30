@@ -21,6 +21,7 @@ const (
 	ErrNotFound      ErrorKind = "not_found"            // 资源不存在
 	ErrRemoteRuntime ErrorKind = "remote_runtime_error" // 远端运行时异常
 	ErrPolicyDenied  ErrorKind = "policy_denied"        // 策略拒绝（例如 readonly）
+	ErrCrypto        ErrorKind = "crypto_error"          // 加解密失败
 )
 
 // OpError 是 SDK 返回的统一错误类型。
