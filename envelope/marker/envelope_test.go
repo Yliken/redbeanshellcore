@@ -130,11 +130,8 @@ func TestExtract_MissingMetaTags(t *testing.T) {
 	resp.Body = []byte("untouched body")
 
 	got, err := e.Extract(context.Background(), resp)
-	if err != nil {
-		t.Fatalf("Extract 出错: %v", err)
-	}
-	if string(got.Body) != "untouched body" {
-		t.Fatalf("Meta 缺失时应原样返回 body，got=%q", got.Body)
+	if err == nil {
+		t.Fatalf("Meta 缺失时应返回错误，got=%v, body=%q", got, resp.Body)
 	}
 }
 
@@ -146,11 +143,8 @@ func TestExtract_MissingStartTag(t *testing.T) {
 	resp.Body = []byte("body without tags")
 
 	got, err := e.Extract(context.Background(), resp)
-	if err != nil {
-		t.Fatalf("Extract 出错: %v", err)
-	}
-	if string(got.Body) != "body without tags" {
-		t.Fatalf("找不到 start tag 时应原样返回 body，got=%q", got.Body)
+	if err == nil {
+		t.Fatalf("找不到 start tag 时应返回错误，got=%v, body=%q", got, resp.Body)
 	}
 }
 
@@ -165,12 +159,8 @@ func TestExtract_MissingEndTag(t *testing.T) {
 	resp.Body = []byte(wrapped.Meta["marker.tag_s"] + "some-stuff-but-no-end")
 
 	got, err := e.Extract(context.Background(), resp)
-	if err != nil {
-		t.Fatalf("Extract 出错: %v", err)
-	}
-	// 有 start 但找不到 end → 当前行为原样返回
-	if !bytes.Equal(got.Body, resp.Body) {
-		t.Fatalf("找不到 end tag 时应原样返回，got=%q", got.Body)
+	if err == nil {
+		t.Fatalf("end tag missing should return error, got=%v, body=%q", got, resp.Body)
 	}
 }
 

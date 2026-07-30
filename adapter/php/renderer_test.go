@@ -55,11 +55,11 @@ func TestRenderer_FileRead_ReturnsPlaceholders(t *testing.T) {
 func TestRenderer_FileOperationsHaveDeterministicErrors(t *testing.T) {
 	tpl := NewPHPTemplates()
 	listCode, _ := tpl.FileList()
-	if !strings.Contains(listCode, remoteErrorPathUnavailable) || !strings.Contains(listCode, "===false") {
+	if !strings.Contains(listCode, ":PATH_UNAVAILABLE") || !strings.Contains(listCode, "===false") {
 		t.Fatalf("FileList 应包含确定性错误和严格失败判断: %q", listCode)
 	}
 	readCode, _ := tpl.FileRead()
-	for _, want := range []string{"\"rb\"", "stream_get_contents", remoteErrorFileOpen, remoteErrorFileRead} {
+	for _, want := range []string{"\"rb\"", "stream_get_contents", ":FILE_OPEN_FAILED", ":FILE_READ_FAILED"} {
 		if !strings.Contains(readCode, want) {
 			t.Fatalf("FileRead 缺少 %q: %q", want, readCode)
 		}
@@ -71,7 +71,7 @@ func TestRenderer_FileOperationsHaveDeterministicErrors(t *testing.T) {
 	if strings.Contains(downloadCode, "fgetc") {
 		t.Fatalf("FileDownload 不应使用 fgetc 真值判断: %q", downloadCode)
 	}
-	for _, want := range []string{"\"rb\"", "readfile", remoteErrorFileOpen, remoteErrorFileRead} {
+	for _, want := range []string{"\"rb\"", "readfile", ":FILE_OPEN_FAILED", ":FILE_READ_FAILED"} {
 		if !strings.Contains(downloadCode, want) {
 			t.Fatalf("FileDownload 缺少 %q: %q", want, downloadCode)
 		}

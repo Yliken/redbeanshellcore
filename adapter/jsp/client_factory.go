@@ -1,8 +1,9 @@
-package jsp
+﻿package jsp
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"reflect"
 
 	"github.com/Yliken/redbeanshellcore/core"
@@ -74,6 +75,16 @@ func (f *ClientFactory) WrapOp(operation core.Operation) (core.Operation, error)
 			translated.WithObfuscator(f.Obfuscator)
 		}
 		return translated, nil
+	case *ops.FileUploadOperation:
+		data, err := io.ReadAll(op.Reader)
+		if err != nil {
+			return nil, fmt.Errorf("jsp.ClientFactory: read upload data: %w", err)
+		}
+		wrapped := NewJspFileUpload(op.RemotePath, data)
+		if f.Obfuscator != nil {
+			wrapped.WithObfuscator(f.Obfuscator)
+		}
+		return wrapped, nil
 	default:
 		return operation, nil
 	}

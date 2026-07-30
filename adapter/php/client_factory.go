@@ -1,8 +1,9 @@
-package php
+﻿package php
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"reflect"
 	"strconv"
@@ -164,6 +165,12 @@ func (f *ClientFactory) WrapOp(operation core.Operation) (core.Operation, error)
 			translated.WithEnv(key, value)
 		}
 		return translated, nil
+	case *ops.FileUploadOperation:
+		data, err := io.ReadAll(operation.Reader)
+		if err != nil {
+			return nil, fmt.Errorf("php.ClientFactory: read upload data: %w", err)
+		}
+		return NewPhpFileUpload(operation.RemotePath, data), nil
 	default:
 		return operation, nil
 	}

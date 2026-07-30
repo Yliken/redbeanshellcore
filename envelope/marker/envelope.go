@@ -130,17 +130,17 @@ func (e *Envelope) Extract(_ context.Context, resp *core.Response) (*core.Respon
 	tagS := resp.Meta["marker.tag_s"]
 	tagE := resp.Meta["marker.tag_e"]
 	if tagS == "" || tagE == "" {
-		return resp, fmt.Errorf("marker: missing tag_s or tag_e (tag_s=%q, tag_e=%q)", tagS, tagE)
+		return nil, fmt.Errorf("marker: missing tag_s or tag_e (tag_s=%q, tag_e=%q)", tagS, tagE)
 	}
 
 	start := bytes.Index(resp.Body, []byte(tagS))
 	if start < 0 {
-		return resp, fmt.Errorf("marker: start tag %q not found", tagS)
+		return nil, fmt.Errorf("marker: start tag %q not found", tagS)
 	}
 	start += len(tagS)
 	end := bytes.Index(resp.Body[start:], []byte(tagE))
 	if end < 0 {
-		return resp, fmt.Errorf("marker: end tag %q not found", tagE)
+		return nil, fmt.Errorf("marker: end tag %q not found", tagE)
 	}
 	rawBody := resp.Body[start : start+end]
 
@@ -157,7 +157,7 @@ func (e *Envelope) Extract(_ context.Context, resp *core.Response) (*core.Respon
 			key := resp.Meta["hmac_key"]
 			if key != "" && header.Sig != "" {
 				if !wire.VerifyResponseHMAC(body, header.Sig, key) {
-					return resp, errors.New("marker: 响应 HMAC 验证失败，响应可能被篡改")
+					return nil, errors.New("marker: 响应 HMAC 验证失败，响应可能被篡改")
 				}
 			}
 
@@ -169,6 +169,7 @@ func (e *Envelope) Extract(_ context.Context, resp *core.Response) (*core.Respon
 		resp.Body = rawBody
 	}
 
+	resp.EnvelopeOK = true
 	return resp, nil
 }
 

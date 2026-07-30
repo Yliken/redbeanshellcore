@@ -20,7 +20,7 @@ import (
 //	  -> Transform.ApplyRequest
 //	  -> Middleware Chain
 //	     -> Transport.RoundTrip
-//	     -> Transform.ApplyResponse
+//	     -> transform.ApplyResponse
 //	     -> Envelope.Extract
 //	     -> Codec.DecodeResponse
 //	     -> Operation.Parse
@@ -75,6 +75,11 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 		if !isNilInterface(c.envelope) { en = "marker" }
 		if err := ValidateProfile(cn, en, adapterName); err != nil {
 			return nil, err
+		}
+		if !isNilInterface(c.crypto) && adapterName != "" {
+			if profile, ok := KnownAdapterProfiles[adapterName]; ok && !profile.Crypto {
+				return nil, NewOpError(ErrProtocol, opName, c.nodeID(), "adapter "+adapterName+" does not support crypto mode", nil)
+			}
 		}
 	}
 
@@ -201,7 +206,21 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 			return resp, mapHTTPStatus(resp.StatusCode, opName, c.nodeID())
 		}
 
-		// 响应 Transform 按请求方向的相反顺序执行。
+		if !isNilInterface(c.envelope) {
+			nextResp, extractErr := c.envelope.Extract(ctx, resp)
+			if nextResp != nil {
+				resp = nextResp
+				prepareResponse(resp, request, c.nodeID())
+			}
+			if extractErr != nil {
+				return resp, wrapError(ErrEnvelope, opName, c.nodeID(), "envelope extract 失败", extractErr)
+			}
+			if nextResp == nil {
+				return resp, NewOpError(ErrEnvelope, opName, c.nodeID(), "envelope.Extract 返回了 nil", nil)
+			}
+		}
+
+	// 先解包 Envelope，再应用响应 Transform（反向顺序）。
 		for i := len(c.transforms) - 1; i >= 0; i-- {
 			transform := c.transforms[i]
 			direction := transform.Direction()
@@ -218,20 +237,6 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 			}
 			if nextResp == nil {
 				return resp, NewOpError(ErrDecode, opName, c.nodeID(), "transform.ApplyResponse 返回了 nil: "+transform.Name(), nil)
-			}
-		}
-
-		if !isNilInterface(c.envelope) {
-			nextResp, extractErr := c.envelope.Extract(ctx, resp)
-			if nextResp != nil {
-				resp = nextResp
-				prepareResponse(resp, request, c.nodeID())
-			}
-			if extractErr != nil {
-				return resp, wrapError(ErrEnvelope, opName, c.nodeID(), "envelope extract 失败", extractErr)
-			}
-			if nextResp == nil {
-				return resp, NewOpError(ErrEnvelope, opName, c.nodeID(), "envelope.Extract 返回了 nil", nil)
 			}
 		}
 
@@ -362,6 +367,7 @@ type AdapterProfile struct {
 	Name      string
 	Codecs    []string
 	Envelopes []string
+	Crypto    bool		// 是否支持加密模式
 }
 
 // ValidateProfile checks if the codec/envelope combo is compatible with the adapter.
@@ -400,6 +406,21 @@ var KnownAdapterProfiles = map[string]AdapterProfile{
 		Name:      "php",
 		Codecs:    []string{},
 		Envelopes: []string{"marker"},
+	},
+	"asp": {
+		Name:      "asp",
+		Codecs:    []string{},
+		Envelopes: []string{},
+	},
+	"aspx": {
+		Name:      "aspx",
+		Codecs:    []string{},
+		Envelopes: []string{},
+	},
+	"jsp": {
+		Name:      "jsp",
+		Codecs:    []string{},
+		Envelopes: []string{},
 	},
 }
 

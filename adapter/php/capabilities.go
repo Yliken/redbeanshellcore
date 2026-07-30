@@ -17,7 +17,7 @@ func (c *Capabilities) All() []core.Capability {
 		core.CapFileRead,
 		//core.CapFileWrite,
 		//core.CapFileDelete,
-		//core.CapFileUpload,
+		core.CapFileUpload,
 	}
 }
 

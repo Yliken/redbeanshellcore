@@ -21,7 +21,7 @@ const (
 	CapFileRead Capability = "file.read" // 读文件
 	//CapFileWrite  Capability = "file.write"  // 写文件
 	//CapFileDelete Capability = "file.delete" // 删除文件
-	//CapFileUpload Capability = "file.upload" // 上传文件
+	CapFileUpload Capability = "file.upload" // 上传文件
 )
 
 // CapabilityAware 是可选接口，由需要声明前置能力的 Operation 实现。

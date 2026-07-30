@@ -1,4 +1,4 @@
-package jsp
+﻿package jsp
 
 import "github.com/Yliken/redbeanshellcore/core"
 
@@ -15,6 +15,7 @@ func (c *Capabilities) All() []core.Capability {
 		core.CapExec,
 		core.CapFileList,
 		core.CapFileRead,
+		core.CapFileUpload,
 	}
 }
 

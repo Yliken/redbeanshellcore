@@ -63,6 +63,10 @@ func parseRemoteError(operation string, resp *core.Response) error {
 		msg := describeRedbeanError(body)
 		return core.NewOpError(core.ErrRemoteRuntime, operation, resp.NodeID, msg+" ("+body+")", nil)
 	}
+	// 通用 ERR: 前缀（与其他 adapter 保持一致）
+	if strings.HasPrefix(body, "ERR:") {
+		return core.NewOpError(core.ErrRemoteRuntime, operation, resp.NodeID, "remote error: "+body, nil)
+	}
 
 	// 新版动态错误前缀
 	prefix := resp.Meta["remote_error_prefix"]

@@ -8,6 +8,7 @@ type Response struct {
 	Body       []byte
 	Headers    map[string]string
 	Meta       map[string]string
+	EnvelopeOK bool        // 标记 Envelope 是否成功提取（供 Middleware 观测）
 }
 
 // NewResponse 构建一个已初始化 map 的空 Response。
