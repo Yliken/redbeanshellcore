@@ -13,8 +13,12 @@ import (
 const (
 	ProtocolVersion = "1"
 	HeaderDelim     = "BODY"
-	ResponsePrefix  = "RBS1.0"
 )
+
+// ResponsePrefix is the wire protocol header prefix.
+// Change this to avoid hardcoded traffic signature.
+// Default "RBS1.0" for backward compatibility.
+var ResponsePrefix = "RBS1.0"
 
 type RequestEnvelope struct {
 	Version string
@@ -63,9 +67,15 @@ func (e *RequestEnvelope) FormFields() map[string]string {
 	}
 }
 
+// ParseResponse parses a wire protocol response using the default prefix.
 func ParseResponse(body []byte) (content []byte, header *ResponseHeader) {
+	return ParseResponseWithPrefix(body, ResponsePrefix)
+}
+
+// ParseResponseWithPrefix parses a wire protocol response with the given prefix.
+func ParseResponseWithPrefix(body []byte, prefix string) (content []byte, header *ResponseHeader) {
 	s := string(body)
-	idx := strings.Index(s, ResponsePrefix)
+	idx := strings.Index(s, prefix)
 	if idx < 0 {
 		return body, nil
 	}
@@ -82,7 +92,7 @@ func ParseResponse(body []byte) (content []byte, header *ResponseHeader) {
 	header = &ResponseHeader{Version: ProtocolVersion}
 	for _, line := range strings.Split(headerLines, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || line == ResponsePrefix || line == HeaderDelim {
+		if line == "" || line == prefix || line == HeaderDelim {
 			continue
 		}
 		parts := strings.SplitN(line, "=", 2)
@@ -103,8 +113,12 @@ func ParseResponse(body []byte) (content []byte, header *ResponseHeader) {
 		}
 	}
 	bodyContent := s[bodyContentStart:]
-	if sigIdx := strings.Index(bodyContent, "\nSIG="); sigIdx >= 0 {
-		bodyContent = bodyContent[:sigIdx]
+	// P1.2: Use LastIndex to avoid binary truncation from mid-body SIG= matches
+	if sigIdx := strings.LastIndex(bodyContent, "\nSIG="); sigIdx >= 0 {
+		tail := bodyContent[sigIdx+1:]
+		if strings.Count(tail, "\n") <= 1 {
+			bodyContent = strings.TrimSpace(bodyContent[:sigIdx])
+		}
 	}
 	if bodyContentStart < len(s) {
 		content = []byte(strings.TrimSpace(bodyContent))
@@ -113,6 +127,7 @@ func ParseResponse(body []byte) (content []byte, header *ResponseHeader) {
 	}
 	return content, header
 }
+
 
 func VerifyResponseHMAC(body []byte, sig string, key string) bool {
 	if key == "" || sig == "" {

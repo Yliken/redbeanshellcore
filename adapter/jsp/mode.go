@@ -11,7 +11,9 @@ const (
 	// ShellDynamic uses a ScriptEngine-based shell that evaluates inline
 	// JavaScript code. The payload is JavaScript code. Requires Nashorn
 	// (JDK 6-14, removed in JDK 15+).
-	ShellDynamic
+	// Deprecated: ShellDynamic uses Nashorn (ScriptEngine) which was removed
+	// in JDK 15 (2020). Only works on JDK 6-14. Use ShellStatic instead.
+	ShellDynamic // Deprecated
 )
 
 // String returns a human-readable name for the mode.

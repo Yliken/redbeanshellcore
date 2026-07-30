@@ -48,6 +48,9 @@ func (f *ClientFactory) NewClient(_ context.Context, rec *core.NodeRecord) (*cor
 			sess.Metadata[k] = v
 		}
 	}
+	if v, ok := rec.Config.Options["hmac_key"]; ok && v != "" {
+		sess.Metadata["hmac_key"] = v
+	}
 
 	if wireProto {
 		return core.NewClient(

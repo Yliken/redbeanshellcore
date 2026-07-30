@@ -20,13 +20,14 @@ import (
 )
 
 type Envelope struct {
-	TagLen       int
-	WireProtocol bool
+	TagLen          int
+	WireProtocol    bool
+	ResponsePrefix  string
 }
 
-func New() *Envelope { return &Envelope{TagLen: 16, WireProtocol: false} }
+func New() *Envelope { return &Envelope{TagLen: 16, WireProtocol: false, ResponsePrefix: wire.ResponsePrefix} }
 
-func NewWithWire() *Envelope { return &Envelope{TagLen: 16, WireProtocol: true} }
+func NewWithWire() *Envelope { return &Envelope{TagLen: 16, WireProtocol: true, ResponsePrefix: wire.ResponsePrefix} }
 
 func NewWithLength(n int) *Envelope {
 	if n <= 0 {
@@ -97,7 +98,7 @@ func (e *Envelope) Wrap(_ context.Context, req *core.Request) (*core.Request, er
 				"echo \"\\n\";"+
 				"echo '"+wire.HeaderDelim+"';"+
 				"echo \"\\n\";",
-			wire.ResponsePrefix, rid, ts, nonce)
+			e.ResponsePrefix, rid, ts, nonce)
 
 		// 无 HMAC key 时，直接使用简单包裹
 		if key == "" {
@@ -145,7 +146,7 @@ func (e *Envelope) Extract(_ context.Context, resp *core.Response) (*core.Respon
 	rawBody := resp.Body[start : start+end]
 
 	if e.WireProtocol {
-		body, header := wire.ParseResponse(rawBody)
+		body, header := wire.ParseResponseWithPrefix(rawBody, e.ResponsePrefix)
 		if header != nil {
 			resp.SetMeta("proto_version", header.Version)
 			resp.SetMeta("proto_rid", header.RID)
