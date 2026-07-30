@@ -70,7 +70,7 @@ fmt.Printf("workdir=%s\nos=%s\nuser=%s\n", info.Workdir, info.OS, info.User)
 
 目前仅支持 **PHP** 语言的 WebShell，计划添加对其他语言的支持：
 
-- [ ] **JSP** — Java Web Shell
+- [x] **JSP** — Java Web Shell
 - [ ] **ASP / ASPX** — IIS 环境
 - [ ] 其他语言
 
@@ -104,11 +104,5 @@ fmt.Printf("workdir=%s\nos=%s\nuser=%s\n", info.Workdir, info.OS, info.User)
 
 感谢 **中国蚁剑（AntSword）** 项目。
 
-本 SDK 的 PHP 适配器参考了 AntSword 的 PHP 模板设计与协议实现，特别是：
-
-- `tag_s / tag_e` 响应边界协议
-- 多执行函数 fallback 链（system / passthru / shell_exec / exec / popen / proc_open）
-- base64 参数内联传输模式
-- MassData / 流量混淆等免杀思路
 
 项目地址：https://github.com/AntSwordProject/antSword

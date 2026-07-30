@@ -15,12 +15,18 @@
 
 ```
 adapter/
-└── jsp/                          # 你的适配器目录
-    ├── adapter.go                # 主适配器（能力声明）
-    ├── renderer.go               # 模板渲染（生成 JSP 代码）
-    ├── operations.go             # 专属 Operation
-    ├── client_factory.go         # Client 构造器
-    └── capabilities.go           # 支持的能力列表
+└── jsp/                          # JSP 适配器
+    ├── templates.go              # Java 模板 + ShellSource
+    ├── js_templates.go          # JS 模板（Dynamic 模式）
+    ├── operations.go             # 6 个操作实现
+    ├── mode.go                  # ShellStatic / ShellDynamic
+    ├── obfuscate.go             # Obfuscator
+    ├── crypto_shell.go           # Crypto Shell 生成
+    ├── shell_dynamic.go         # Dynamic Shell 源码
+    ├── parser.go                # 响应解析
+    ├── client_factory.go        # ClientFactory
+    ├── capabilities.go          # 能力声明
+    └── adapter.go               # 主适配器
 ```
 
 ---
