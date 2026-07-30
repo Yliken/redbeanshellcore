@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"sync"
 )
 
 // NodeStatus 标记已注册节点的可达性。
@@ -106,7 +107,7 @@ func (m *Manager) Register(ctx context.Context, cfg NodeConfig) error {
 		Capabilities: make([]Capability, 0),
 		CreatedAt:    now,
 		UpdatedAt:    now,
-		LastSeenAt:   now,
+		// LastSeenAt intentionally NOT set here — updated on first success
 	}
 	return m.registry.Put(ctx, rec)
 }
@@ -179,6 +180,9 @@ func (m *Manager) Client(ctx context.Context, nodeID string) (*Client, error) {
 	if record == nil {
 		return nil, fmt.Errorf("remote-node-core: registry.Get(%q) 返回了 nil", nodeID)
 	}
+	if record.Status == NodeFrozen {
+		return nil, fmt.Errorf("remote-node-core: node %q is frozen, cannot create client", nodeID)
+	}
 	if isNilInterface(m.factory) {
 		return nil, fmt.Errorf("remote-node-core: client factory 未配置")
 	}
@@ -199,17 +203,31 @@ func (m *Manager) Ping(ctx context.Context, nodeID string, op Operation) error {
 		return err
 	}
 	_, err = c.Do(ctx, op)
+
+	rec, getErr := m.registry.Get(ctx, nodeID)
+	if getErr != nil || rec == nil {
+		return errors.Join(err, fmt.Errorf("remote-node-core: get node %q failed: %w", nodeID, getErr))
+	}
+
+	now := time.Now().UTC()
+	rec.LastSeenAt = now
+	rec.UpdatedAt = now
+
 	if err != nil {
-		if updateErr := m.Update(ctx, nodeID, NodePatch{Status: NodeDown}); updateErr != nil {
-			return errors.Join(err, fmt.Errorf("remote-node-core: 更新节点 %q 为 down 失败: %w", nodeID, updateErr))
+		rec.Status = NodeDown
+		rec.LastError = err.Error()
+		if putErr := m.registry.Put(ctx, rec); putErr != nil {
+			return errors.Join(err, fmt.Errorf("remote-node-core: update node %q to down failed: %w", nodeID, putErr))
 		}
 		return err
 	}
-	if updateErr := m.Update(ctx, nodeID, NodePatch{Status: NodeReady}); updateErr != nil {
-		return fmt.Errorf("remote-node-core: 更新节点 %q 为 ready 失败: %w", nodeID, updateErr)
+
+	rec.Status = NodeReady
+	rec.LastError = ""
+	if putErr := m.registry.Put(ctx, rec); putErr != nil {
+		return fmt.Errorf("remote-node-core: update node %q to ready failed: %w", nodeID, putErr)
 	}
 	return nil
-}
 
 // Refresh 重新拉取基础信息 / capabilities 并刷新 NodeRecord。
 func (m *Manager) Refresh(ctx context.Context, nodeID string, op Operation) (*NodeRecord, error) {
@@ -238,8 +256,10 @@ func (m *Manager) Refresh(ctx context.Context, nodeID string, op Operation) (*No
 		rec.Metadata["os"] = ir.OS
 		rec.Metadata["user"] = ir.User
 		rec.Metadata["workdir"] = ir.Workdir
+		rec.Capabilities = ir.Capabilities()
 	}
 	rec.LastSeenAt = time.Now().UTC()
+	rec.LastError = ""
 	rec.Status = NodeReady
 	if err := m.registry.Put(ctx, rec); err != nil {
 		return nil, fmt.Errorf("remote-node-core: 持久化节点 %q 刷新结果失败: %w", nodeID, err)
@@ -261,35 +281,61 @@ type BatchResult struct {
 //	不会重试，也不会主动规避写入类副作用。
 func (m *Manager) DoEach(ctx context.Context, filter NodeFilter, opFactory func(*NodeRecord) Operation) ([]BatchResult, error) {
 	if opFactory == nil {
-		return nil, fmt.Errorf("remote-node-core: opFactory 不能为空")
+		return nil, fmt.Errorf("remote-node-core: opFactory cannot be nil")
 	}
 	recs, err := m.List(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
+
+	// P1.11: Reject non-readonly operations
+	if len(recs) > 0 {
+		test := opFactory(recs[0])
+		if aware, ok := test.(RiskAware); ok && aware.RiskLevel() != RiskReadOnly {
+			return nil, fmt.Errorf("remote-node-core: DoEach rejects non-readonly operation (risk=%s)", aware.RiskLevel())
+		}
+	}
+
 	out := make([]BatchResult, 0, len(recs))
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10) // max 10 concurrent
+
 	for index, rec := range recs {
 		if rec == nil {
-			return nil, fmt.Errorf("remote-node-core: registry.List 返回的第 %d 条记录为 nil", index)
+			return nil, fmt.Errorf("remote-node-core: registry.List returned nil at index %d", index)
 		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(r *NodeRecord) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			c, cerr := m.Client(ctx, r.Config.ID)
+			if cerr != nil {
+				mu.Lock()
+				out = append(out, BatchResult{NodeID: r.Config.ID, Error: cerr})
+				mu.Unlock()
+				return
+			}
+			op := opFactory(r)
+			// Per-node timeout (P1.11)
+			nodeCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			res, derr := c.Do(nodeCtx, op)
+			mu.Lock()
+			out = append(out, BatchResult{NodeID: r.Config.ID, Result: res, Error: derr})
+			mu.Unlock()
+		}(rec)
+	}
+	wg.Wait()
+	return out, nil
+}
 		c, cerr := m.Client(ctx, rec.Config.ID)
 		if cerr != nil {
 			out = append(out, BatchResult{NodeID: rec.Config.ID, Error: cerr})
 			continue
 		}
 		op := opFactory(rec)
-		res, derr := c.Do(ctx, op)
-		out = append(out, BatchResult{NodeID: rec.Config.ID, Result: res, Error: derr})
-	}
-	return out, nil
-}
-
-func copyMap(in map[string]string) map[string]string {
-	if in == nil {
-		return make(map[string]string)
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
 		out[k] = v
 	}
 	return out
