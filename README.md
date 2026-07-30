@@ -71,7 +71,7 @@ fmt.Printf("workdir=%s\nos=%s\nuser=%s\n", info.Workdir, info.OS, info.User)
 目前仅支持 **PHP** 语言的 WebShell，计划添加对其他语言的支持：
 
 - [x] **JSP** — Java Web Shell
-- [ ] **ASP / ASPX** — IIS 环境
+- [x] **ASP / ASPX** — IIS 环境
 - [ ] 其他语言
 
 欢迎贡献代码！

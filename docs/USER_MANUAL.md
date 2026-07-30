@@ -70,25 +70,25 @@ res, err := client.Do(ctx, operation)
 ### PHP 适配器专属（PHP Shell 必须用）
 
 ```go
-phpshell.NewPhpInfo()                      // 系统信息
-phpshell.NewPhpFileList("/var/www")        // 列目录
-phpshell.NewPhpFileRead("/etc/passwd")     // 读文件
-phpshell.NewPhpFileDownload("/tmp/data.bin") // 下载二进制文件
-phpshell.NewPhpFileUpload("/tmp/x.go", data) // 上传文件
-phpshell.NewPhpExec("whoami")              // 执行命令
+php.NewPhpInfo()                      // 系统信息
+php.NewPhpFileList("/var/www")        // 列目录
+php.NewPhpFileRead("/etc/passwd")     // 读文件
+php.NewPhpFileDownload("/tmp/data.bin") // 下载二进制文件
+php.NewPhpFileUpload("/tmp/x.go", data) // 上传文件
+php.NewPhpExec("whoami")              // 执行命令
 ```
 
 链式调用：
 
 ```go
 // Exec：指定 shell 路径
-phpshell.NewPhpExec("dir").WithBin("C:\\Windows\\system32\\cmd.exe")
+php.NewPhpExec("dir").WithBin("C:\\Windows\\system32\\cmd.exe")
 
 // Exec：注入环境变量
-phpshell.NewPhpExec("make").WithEnv("CC", "gcc")
+php.NewPhpExec("make").WithEnv("CC", "gcc")
 
 // Upload：追加模式（默认覆盖）
-phpshell.NewPhpFileUpload("/tmp/x.go", data).WithAppend(true)
+php.NewPhpFileUpload("/tmp/x.go", data).WithAppend(true)
 ```
 
 ### core 通用操作（仅作抽象层，PHP 环境不要直接用）
@@ -319,12 +319,12 @@ mgr.List(ctx, NodeFilter{Tags: []string{"lab"}, Status: NodeReady})
 mgr.Client(ctx, "lab-a")
 
 // 健康检查
-mgr.Ping(ctx, "lab-a", phpshell.NewPhpInfo())
-mgr.Refresh(ctx, "lab-a", phpshell.NewPhpInfo())
+mgr.Ping(ctx, "lab-a", php.NewPhpInfo())
+mgr.Refresh(ctx, "lab-a", php.NewPhpInfo())
 
 // 批量操作（仅限读）
 mgr.DoEach(ctx, filter, func(rec *NodeRecord) Operation {
-    return phpshell.NewPhpInfo()
+    return php.NewPhpInfo()
 })
 ```
 

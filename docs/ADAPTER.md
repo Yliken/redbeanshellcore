@@ -128,10 +128,10 @@ func (f *ClientFactory) NewClient(ctx context.Context, rec *core.NodeRecord) (*c
 
 ```go
 // 使用 PHP 适配器内置的 Factory
-mgr := core.NewManager(registry, phpshell.NewClientFactory())
+mgr := core.NewManager(registry, php.NewClientFactory())
 
 // 或接入自己的 JSP / ASP Factory
-mgr := core.NewManager(registry, jspadapter.NewClientFactory())
+mgr := core.NewManager(registry, jsp.NewClientFactory())
 ```
 
 方法二：默认 Factory（仅限跑测试 / 接自定义 selector）：
@@ -146,7 +146,7 @@ mgr := core.NewManager(registry, core.DefaultClientFactory())
 
 ```go
 client, _ := mgr.Client(ctx, "jsp-node")
-res, _ := client.Do(ctx, jspadapter.NewJspInfo())
+res, _ := client.Do(ctx, jsp.NewJspInfo())
 ```
 
 ---

