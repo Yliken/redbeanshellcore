@@ -1,7 +1,5 @@
 package jsp
 
-
-
 // DynamicShellSource returns the ScriptEngine-based JSP shell.
 func DynamicShellSource() string {
 	return DynamicShellSourceWith(DefaultObfuscator())
