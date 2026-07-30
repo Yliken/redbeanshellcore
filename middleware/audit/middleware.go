@@ -5,6 +5,7 @@ package audit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
@@ -43,6 +44,7 @@ type Options struct {
 	Sink       Sink
 	ArgsMaxLen int
 	Logger     *slog.Logger
+	FailClosed bool
 }
 
 // Middleware 返回一个记录 AuditEvent 的中间件。
@@ -83,7 +85,11 @@ func Middleware(opts ...Option) core.Middleware {
 					event.ErrorKind = string(core.ErrRemoteRuntime)
 				}
 			}
-			_ = cfg.Sink.Record(event)
+			if recordErr := cfg.Sink.Record(event); recordErr != nil {
+				if cfg.FailClosed {
+					return resp, fmt.Errorf("audit: record failed (fail-closed): %w", recordErr)
+				}
+			}
 			return resp, err
 		}
 	}

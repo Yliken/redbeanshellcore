@@ -80,14 +80,17 @@ type Manager struct {
 }
 
 // NewManager 构建一个 Manager。factory 为 nil 时会使用 DefaultClientFactory。
-func NewManager(r Registry, f ClientFactory) *Manager {
+func NewManager(r Registry, f ClientFactory) (*Manager, error) {
+	if r == nil {
+		return nil, fmt.Errorf("remote-node-core: registry cannot be nil")
+	}
 	m := &Manager{registry: r}
 	if f != nil {
 		m.factory = f
 	} else {
 		m.factory = DefaultClientFactory()
 	}
-	return m
+	return m, nil
 }
 
 // Register 添加一个新节点。

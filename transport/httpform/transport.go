@@ -216,9 +216,12 @@ func (t *Transport) getClient() *http.Client {
 			jar = newCookieJar()
 		}
 		t.client = &http.Client{
-			Timeout:   t.effectiveTimeout(),
-			Transport: tr,
-			Jar:       jar,
+			Timeout:       t.effectiveTimeout(),
+			Transport:     tr,
+			Jar:           jar,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
 		}
 	})
 	return t.client

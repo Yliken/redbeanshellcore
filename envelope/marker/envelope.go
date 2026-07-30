@@ -130,17 +130,17 @@ func (e *Envelope) Extract(_ context.Context, resp *core.Response) (*core.Respon
 	tagS := resp.Meta["marker.tag_s"]
 	tagE := resp.Meta["marker.tag_e"]
 	if tagS == "" || tagE == "" {
-		return resp, nil
+		return resp, fmt.Errorf("marker: missing tag_s or tag_e (tag_s=%q, tag_e=%q)", tagS, tagE)
 	}
 
 	start := bytes.Index(resp.Body, []byte(tagS))
 	if start < 0 {
-		return resp, nil
+		return resp, fmt.Errorf("marker: start tag %q not found", tagS)
 	}
 	start += len(tagS)
 	end := bytes.Index(resp.Body[start:], []byte(tagE))
 	if end < 0 {
-		return resp, nil
+		return resp, fmt.Errorf("marker: end tag %q not found", tagE)
 	}
 	rawBody := resp.Body[start : start+end]
 

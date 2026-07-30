@@ -1,16 +1,15 @@
-ï»¿# ä¸ªäººæµ‹è¯•æ¨¡å—ï¼Œä¸å‘å¸ƒ
+# ¸öÈË²âÊÔÄ£¿é£¬²»·¢²¼
 agentdemo/
 examples/
 
 .claude/
-./PROJECT_REVIEW.md
-./TODO.md
+PROJECT_REVIEW.md
+TODO.md
 
 # Go
 *.exe
 *.test
 *.out
-*_test.go
 vendor/
 
 # IDE

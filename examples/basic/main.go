@@ -13,7 +13,7 @@ func main() {
 	ctx := context.Background()
 
 	reg := memory.New()
-	mgr := core.NewManager(reg, phpshell.NewClientFactory())
+	mgr, _ := core.NewManager(reg, phpshell.NewClientFactory())
 
 	// 注册节点 a
 	mgr.Register(ctx, core.NodeConfig{

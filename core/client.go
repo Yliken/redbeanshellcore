@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"reflect"
 	"strings"
 	"time"
@@ -63,6 +64,17 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+
+	adapterName := c.sessionMeta("adapter")
+	if adapterName != "" {
+		cn := ""
+		if !isNilInterface(c.codec) { cn = c.codec.Name() }
+		en := ""
+		if !isNilInterface(c.envelope) { en = "marker" }
+		if err := ValidateProfile(cn, en, adapterName); err != nil {
+			return nil, err
+		}
 	}
 
 	// 把 node id 带到 context 中，方便中间件引用。
@@ -168,7 +180,7 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 			return nil, NewOpError(ErrProtocol, opName, c.nodeID(), "transport.RoundTrip 返回了 nil", nil)
 		}
 
-		if resp.StatusCode >= 400 {
+		if resp.StatusCode != http.StatusOK {
 			return resp, mapHTTPStatus(resp.StatusCode, opName, c.nodeID())
 		}
 
@@ -326,6 +338,57 @@ func isNilInterface(value any) bool {
 	default:
 		return false
 	}
+}
+
+// AdapterProfile describes supported codec/envelope combinations for an adapter.
+type AdapterProfile struct {
+	Name      string
+	Codecs    []string
+	Envelopes []string
+}
+
+// ValidateProfile checks if the codec/envelope combo is compatible with the adapter.
+func ValidateProfile(codecName, envelopeName, adapter string) error {
+	profile, ok := KnownAdapterProfiles[adapter]
+	if !ok {
+		return nil
+	}
+	if codecName != "" {
+		if len(profile.Codecs) == 0 {
+			return NewOpError(ErrProtocol, "", "", "adapter "+adapter+" does not support any codec, got "+codecName, nil)
+		}
+		compat := false
+		for _, c := range profile.Codecs {
+			if c == codecName { compat = true; break }
+		}
+		if !compat {
+			return NewOpError(ErrProtocol, "", "", "adapter "+adapter+" does not support codec "+codecName, nil)
+		}
+	}
+	if envelopeName != "" && len(profile.Envelopes) > 0 {
+		compat := false
+		for _, e := range profile.Envelopes {
+			if e == envelopeName { compat = true; break }
+		}
+		if !compat {
+			return NewOpError(ErrProtocol, "", "", "adapter "+adapter+" does not support envelope "+envelopeName, nil)
+		}
+	}
+	return nil
+}
+
+// KnownAdapterProfiles maps adapter names to their supported component profiles.
+var KnownAdapterProfiles = map[string]AdapterProfile{
+	"php": {
+		Name:      "php",
+		Codecs:    []string{},
+		Envelopes: []string{"marker"},
+	},
+}
+
+func (c *Client) sessionMeta(key string) string {
+	if c.session == nil { return "" }
+	return c.session.Metadata[key]
 }
 
 // mapHTTPStatus 把 HTTP 状态码映射为对应的 SDK 错误分类。
