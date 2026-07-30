@@ -228,7 +228,7 @@ func (m *Manager) Ping(ctx context.Context, nodeID string, op Operation) error {
 		return fmt.Errorf("remote-node-core: update node %q to ready failed: %w", nodeID, putErr)
 	}
 	return nil
-
+}
 // Refresh 重新拉取基础信息 / capabilities 并刷新 NodeRecord。
 func (m *Manager) Refresh(ctx context.Context, nodeID string, op Operation) (*NodeRecord, error) {
 	c, err := m.Client(ctx, nodeID)
@@ -256,7 +256,6 @@ func (m *Manager) Refresh(ctx context.Context, nodeID string, op Operation) (*No
 		rec.Metadata["os"] = ir.OS
 		rec.Metadata["user"] = ir.User
 		rec.Metadata["workdir"] = ir.Workdir
-		rec.Capabilities = ir.Capabilities()
 	}
 	rec.LastSeenAt = time.Now().UTC()
 	rec.LastError = ""
@@ -330,12 +329,12 @@ func (m *Manager) DoEach(ctx context.Context, filter NodeFilter, opFactory func(
 	wg.Wait()
 	return out, nil
 }
-		c, cerr := m.Client(ctx, rec.Config.ID)
-		if cerr != nil {
-			out = append(out, BatchResult{NodeID: rec.Config.ID, Error: cerr})
-			continue
-		}
-		op := opFactory(rec)
+func copyMap(in map[string]string) map[string]string {
+	if in == nil {
+		return make(map[string]string)
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
 		out[k] = v
 	}
 	return out
