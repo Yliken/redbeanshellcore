@@ -33,3 +33,23 @@ type Crypto interface {
 	// The implementation should modify resp.Body in place or return a new Response.
 	Decrypt(ctx context.Context, resp *Response) (*Response, error)
 }
+
+// BodyCrypto encrypts and decrypts the complete wire body. It is a
+// transport-level alternative to Crypto: the transport serializes the whole
+// form, encrypts it, and submits a single crypto field, then decrypts the
+// response before the normal response chain runs.
+//
+// BodyCrypto and Crypto are mutually exclusive on a Client. Configure the
+// transport separately (for example transport/httpform.Options.BodyCrypto)
+// and use WithBodyCrypto on the Client so the payload-level crypto step is
+// skipped.
+type BodyCrypto interface {
+	// Name returns a short identifier for this body crypto (e.g. "aes-gcm").
+	Name() string
+
+	// EncryptBody encrypts the serialized request body.
+	EncryptBody(ctx context.Context, body []byte) ([]byte, error)
+
+	// DecryptBody decrypts the raw response body.
+	DecryptBody(ctx context.Context, body []byte) ([]byte, error)
+}

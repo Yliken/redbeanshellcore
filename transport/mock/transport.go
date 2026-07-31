@@ -1,10 +1,12 @@
 // Package mock 提供基于内存的 Transport，把请求路由到用户提供的 handler。
-//  专为测试、示例和不需要真实网络的适配器原型设计。
+//
+//	专为测试、示例和不需要真实网络的适配器原型设计。
 package mock
 
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"github.com/Yliken/redbeanshellcore/core"
 )
@@ -24,7 +26,11 @@ func (t *Transport) RoundTrip(ctx context.Context, req *core.Request) (*core.Res
 	if t.Handler == nil {
 		return nil, &core.OpError{Kind: core.ErrNetwork, Operation: req.Operation, Message: "mock transport: handler 未配置"}
 	}
-	return t.Handler(ctx, req)
+	resp, err := t.Handler(ctx, req)
+	if resp != nil && resp.StatusCode == 0 {
+		resp.StatusCode = http.StatusOK
+	}
+	return resp, err
 }
 
 // FailAlways 是一个返回给定错误的 handler 工厂。

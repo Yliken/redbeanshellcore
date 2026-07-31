@@ -32,6 +32,8 @@ type Client struct {
 	codec       Codec
 	envelope    Envelope
 	crypto      Crypto
+	bodyCrypto  BodyCrypto
+	configErr   error
 	transforms  []Transform
 	middlewares []Middleware
 }
@@ -56,6 +58,9 @@ func (c *Client) Session() *Session { return c.session }
 
 // Do 执行单个 Operation，返回结构化的 Result。
 func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
+	if c.configErr != nil {
+		return nil, NewOpError(ErrProtocol, "", c.nodeID(), c.configErr.Error(), c.configErr)
+	}
 	if isNilInterface(op) {
 		return nil, NewOpError(ErrProtocol, "", c.nodeID(), "operation 不能为空", nil)
 	}
@@ -67,18 +72,35 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 		ctx = context.Background()
 	}
 
-	adapterName := c.sessionMeta("adapter")
+	adapterName := c.sessionAdapter()
 	if adapterName != "" {
 		cn := ""
-		if !isNilInterface(c.codec) { cn = c.codec.Name() }
+		if !isNilInterface(c.codec) {
+			cn = c.codec.Name()
+		}
 		en := ""
-		if !isNilInterface(c.envelope) { en = "marker" }
+		if !isNilInterface(c.envelope) {
+			if named, ok := c.envelope.(interface{ Name() string }); ok {
+				en = named.Name()
+			} else {
+				en = "marker"
+			}
+		}
 		if err := ValidateProfile(cn, en, adapterName); err != nil {
 			return nil, err
 		}
-		if !isNilInterface(c.crypto) && adapterName != "" {
-			if profile, ok := KnownAdapterProfiles[adapterName]; ok && !profile.Crypto {
-				return nil, NewOpError(ErrProtocol, opName, c.nodeID(), "adapter "+adapterName+" does not support crypto mode", nil)
+		mode := ""
+		if !isNilInterface(c.crypto) {
+			mode = c.crypto.Name()
+		} else if !isNilInterface(c.bodyCrypto) {
+			mode = c.bodyCrypto.Name()
+		}
+		if mode != "" {
+			if profile, ok := KnownAdapterProfiles[adapterName]; ok && !profile.SupportsCrypto(mode) {
+				return nil, NewOpError(ErrProtocol, opName, c.nodeID(), "adapter "+adapterName+" does not support crypto mode "+mode, nil)
+			}
+			if declared := c.sessionMeta("crypto_mode"); declared != "" && declared != mode {
+				return nil, NewOpError(ErrProtocol, opName, c.nodeID(), "crypto mode mismatch: shell="+declared+" client="+mode, nil)
 			}
 		}
 	}
@@ -176,7 +198,7 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 	root := Handler(func(ctx context.Context, request *Request) (*Response, error) {
 		result = nil
 		// encrypt request before sending
-		if !isNilInterface(c.crypto) {
+		if !isNilInterface(c.crypto) && isNilInterface(c.bodyCrypto) {
 			var encErr error
 			request, encErr = c.crypto.Encrypt(ctx, request)
 			if encErr != nil {
@@ -188,7 +210,7 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 			prepareResponse(resp, request, c.nodeID())
 		}
 		// decrypt response after receiving
-		if resp != nil && !isNilInterface(c.crypto) {
+		if resp != nil && !isNilInterface(c.crypto) && isNilInterface(c.bodyCrypto) {
 			var decErr error
 			resp, decErr = c.crypto.Decrypt(ctx, resp)
 			if decErr != nil {
@@ -220,7 +242,7 @@ func (c *Client) Do(ctx context.Context, op Operation) (Result, error) {
 			}
 		}
 
-	// 先解包 Envelope，再应用响应 Transform（反向顺序）。
+		// 先解包 Envelope，再应用响应 Transform（反向顺序）。
 		for i := len(c.transforms) - 1; i >= 0; i-- {
 			transform := c.transforms[i]
 			direction := transform.Direction()
@@ -364,10 +386,44 @@ func isNilInterface(value any) bool {
 
 // AdapterProfile describes supported codec/envelope combinations for an adapter.
 type AdapterProfile struct {
-	Name      string
-	Codecs    []string
-	Envelopes []string
-	Crypto    bool		// 是否支持加密模式
+	Name        string
+	Codecs      []string
+	Envelopes   []string
+	Crypto      bool // 是否支持加密模式（兼容旧字段）
+	CryptoModes []string
+}
+
+// SupportsCrypto reports whether the adapter profile supports the given crypto
+// mode. CryptoModes takes precedence; when it is empty the legacy Crypto bool
+// is used.
+func (p AdapterProfile) SupportsCrypto(mode string) bool {
+	if len(p.CryptoModes) > 0 {
+		for _, m := range p.CryptoModes {
+			if m == mode {
+				return true
+			}
+		}
+		return false
+	}
+	return p.Crypto
+}
+
+// SupportsEnvelope reports whether the adapter profile accepts the given
+// envelope name. A nil Envelopes list or the "any" sentinel skips validation;
+// an empty non-nil list rejects every envelope.
+func (p AdapterProfile) SupportsEnvelope(name string) bool {
+	if name == "" {
+		return true
+	}
+	if p.Envelopes == nil {
+		return true
+	}
+	for _, e := range p.Envelopes {
+		if e == "any" || e == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidateProfile checks if the codec/envelope combo is compatible with the adapter.
@@ -380,24 +436,31 @@ func ValidateProfile(codecName, envelopeName, adapter string) error {
 		if len(profile.Codecs) == 0 {
 			return NewOpError(ErrProtocol, "", "", "adapter "+adapter+" does not support any codec, got "+codecName, nil)
 		}
-		compat := false
-		for _, c := range profile.Codecs {
-			if c == codecName { compat = true; break }
-		}
-		if !compat {
+		if !containsString(profile.Codecs, codecName) {
 			return NewOpError(ErrProtocol, "", "", "adapter "+adapter+" does not support codec "+codecName, nil)
 		}
 	}
-	if envelopeName != "" && len(profile.Envelopes) > 0 {
-		compat := false
-		for _, e := range profile.Envelopes {
-			if e == envelopeName { compat = true; break }
+	if envelopeName != "" {
+		if profile.Envelopes == nil {
+			return nil
 		}
-		if !compat {
+		if len(profile.Envelopes) == 0 {
+			return NewOpError(ErrProtocol, "", "", "adapter "+adapter+" does not support any envelope, got "+envelopeName, nil)
+		}
+		if !profile.SupportsEnvelope(envelopeName) {
 			return NewOpError(ErrProtocol, "", "", "adapter "+adapter+" does not support envelope "+envelopeName, nil)
 		}
 	}
 	return nil
+}
+
+func containsString(list []string, target string) bool {
+	for _, item := range list {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 // KnownAdapterProfiles maps adapter names to their supported component profiles.
@@ -406,6 +469,13 @@ var KnownAdapterProfiles = map[string]AdapterProfile{
 		Name:      "php",
 		Codecs:    []string{},
 		Envelopes: []string{"marker"},
+	},
+	"php-eval": {
+		Name:        "php-eval",
+		Codecs:      []string{},
+		Envelopes:   []string{},
+		Crypto:      true,
+		CryptoModes: []string{"aes-gcm"},
 	},
 	"asp": {
 		Name:      "asp",
@@ -418,15 +488,29 @@ var KnownAdapterProfiles = map[string]AdapterProfile{
 		Envelopes: []string{},
 	},
 	"jsp": {
-		Name:      "jsp",
-		Codecs:    []string{},
-		Envelopes: []string{},
+		Name:        "jsp",
+		Codecs:      []string{},
+		Envelopes:   []string{},
+		Crypto:      true,
+		CryptoModes: []string{"aes-gcm"},
 	},
 }
 
 func (c *Client) sessionMeta(key string) string {
-	if c.session == nil { return "" }
+	if c.session == nil {
+		return ""
+	}
 	return c.session.Metadata[key]
+}
+
+func (c *Client) sessionAdapter() string {
+	if c.session == nil {
+		return ""
+	}
+	if c.session.Adapter != "" {
+		return c.session.Adapter
+	}
+	return c.session.Metadata["adapter"]
 }
 
 // mapHTTPStatus 把 HTTP 状态码映射为对应的 SDK 错误分类。

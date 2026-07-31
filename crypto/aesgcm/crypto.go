@@ -46,24 +46,12 @@ func (c *Crypto) Encrypt(_ context.Context, req *core.Request) (*core.Request, e
 		return req, nil
 	}
 
-	block, err := aes.NewCipher(c.key)
+	sealed, err := c.seal(req.Payload)
 	if err != nil {
-		return nil, fmt.Errorf("aesgcm: new cipher: %w", err)
+		return nil, err
 	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("aesgcm: new GCM: %w", err)
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, fmt.Errorf("aesgcm: generate nonce: %w", err)
-	}
-
-	ciphertext := gcm.Seal(nonce, nonce, req.Payload, nil)
 	// Base64 encode for transport compatibility
-	req.Payload = []byte(base64.StdEncoding.EncodeToString(ciphertext))
+	req.Payload = []byte(base64.StdEncoding.EncodeToString(sealed))
 	req.SetMeta("crypto", "aes-gcm")
 	return req, nil
 }
@@ -83,24 +71,11 @@ func (c *Crypto) Decrypt(_ context.Context, resp *core.Response) (*core.Response
 		// Not base64-encoded 鈥?pass through (e.g. plaintext response)
 		return resp, nil
 	}
-
-	block, err := aes.NewCipher(c.key)
-	if err != nil {
-		return nil, fmt.Errorf("aesgcm: new cipher: %w", err)
-	}
-
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, fmt.Errorf("aesgcm: new GCM: %w", err)
-	}
-
-	nonceSize := gcm.NonceSize()
-	if len(decoded) < nonceSize {
+	if len(decoded) < 12 {
 		return resp, nil
 	}
 
-	nonce, ciphertext := decoded[:nonceSize], decoded[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	plaintext, err := c.open(decoded)
 	if err != nil {
 		return nil, fmt.Errorf("aesgcm: decrypt: %w", err)
 	}
@@ -109,3 +84,68 @@ func (c *Crypto) Decrypt(_ context.Context, resp *core.Response) (*core.Response
 	return resp, nil
 }
 
+// EncryptBody implements core.BodyCrypto using the same
+// base64(nonce || ciphertext || auth tag) wire format.
+func (c *Crypto) EncryptBody(_ context.Context, body []byte) ([]byte, error) {
+	if len(body) == 0 {
+		return body, nil
+	}
+	sealed, err := c.seal(body)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(base64.StdEncoding.EncodeToString(sealed)), nil
+}
+
+// DecryptBody implements core.BodyCrypto. Unlike Crypto.Decrypt it is strict:
+// a malformed body is an error because a body-encrypted shell always returns
+// encrypted responses.
+func (c *Crypto) DecryptBody(_ context.Context, body []byte) ([]byte, error) {
+	if len(body) == 0 {
+		return body, nil
+	}
+	decoded, err := base64.StdEncoding.DecodeString(string(body))
+	if err != nil {
+		return nil, fmt.Errorf("aesgcm: body is not valid base64 ciphertext: %w", err)
+	}
+	return c.open(decoded)
+}
+
+func (c *Crypto) seal(plaintext []byte) ([]byte, error) {
+	block, err := aes.NewCipher(c.key)
+	if err != nil {
+		return nil, fmt.Errorf("aesgcm: new cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("aesgcm: new GCM: %w", err)
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("aesgcm: generate nonce: %w", err)
+	}
+	return gcm.Seal(nonce, nonce, plaintext, nil), nil
+}
+
+func (c *Crypto) open(sealed []byte) ([]byte, error) {
+	block, err := aes.NewCipher(c.key)
+	if err != nil {
+		return nil, fmt.Errorf("aesgcm: new cipher: %w", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("aesgcm: new GCM: %w", err)
+	}
+	nonceSize := gcm.NonceSize()
+	if len(sealed) < nonceSize {
+		return nil, errors.New("aesgcm: ciphertext too short")
+	}
+	nonce, ciphertext := sealed[:nonceSize], sealed[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("aesgcm: decrypt: %w", err)
+	}
+	return plaintext, nil
+}
+
+var _ core.BodyCrypto = (*Crypto)(nil)

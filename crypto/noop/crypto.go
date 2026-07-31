@@ -25,3 +25,15 @@ func (c *Crypto) Encrypt(_ context.Context, req *core.Request) (*core.Request, e
 func (c *Crypto) Decrypt(_ context.Context, resp *core.Response) (*core.Response, error) {
 	return resp, nil
 }
+
+// EncryptBody implements core.BodyCrypto by passing the body through.
+func (c *Crypto) EncryptBody(_ context.Context, body []byte) ([]byte, error) {
+	return body, nil
+}
+
+// DecryptBody implements core.BodyCrypto by passing the body through.
+func (c *Crypto) DecryptBody(_ context.Context, body []byte) ([]byte, error) {
+	return body, nil
+}
+
+var _ core.BodyCrypto = (*Crypto)(nil)

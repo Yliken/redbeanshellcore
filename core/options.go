@@ -1,6 +1,9 @@
 package core
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Option 是 Client 的功能选项。
 type Option func(*Client)
@@ -39,7 +42,35 @@ func WithMiddleware(mws ...Middleware) Option {
 // 当设置了 Crypto，请求在发送前会先加密，响应在接收后会先解密。
 // 留空（不调用此选项）则不做加解密，与之前行为一致。
 func WithCrypto(cr Crypto) Option {
-	return func(c *Client) { c.crypto = cr }
+	return func(c *Client) {
+		if isNilInterface(cr) {
+			return
+		}
+		if !isNilInterface(c.bodyCrypto) {
+			c.configErr = errors.New("core: WithCrypto conflicts with WithBodyCrypto: payload-level and body-level encryption are mutually exclusive")
+			return
+		}
+		c.crypto = cr
+	}
+}
+
+// WithBodyCrypto sets the Client's body-level encryption component.
+//
+// When BodyCrypto is configured the Client skips the payload-level
+// Encrypt/Decrypt steps; the transport owns encryption of the whole wire body.
+// WithBodyCrypto and WithCrypto are mutually exclusive. Leave unset (do not
+// call this option) to keep the previous payload-level behavior.
+func WithBodyCrypto(bc BodyCrypto) Option {
+	return func(c *Client) {
+		if isNilInterface(bc) {
+			return
+		}
+		if !isNilInterface(c.crypto) {
+			c.configErr = errors.New("core: WithBodyCrypto conflicts with WithCrypto: body-level and payload-level encryption are mutually exclusive")
+			return
+		}
+		c.bodyCrypto = bc
+	}
 }
 
 type nodeKey struct{}

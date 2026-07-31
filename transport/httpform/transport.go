@@ -22,8 +22,8 @@ import (
 	"time"
 
 	"github.com/Yliken/redbeanshellcore/core"
-	"github.com/Yliken/redbeanshellcore/transport/useragent"
 	"github.com/Yliken/redbeanshellcore/protocol/wire"
+	"github.com/Yliken/redbeanshellcore/transport/useragent"
 )
 
 const (
@@ -34,18 +34,18 @@ const (
 type HTTPProtocol int
 
 const (
-	ProtocolAuto      HTTPProtocol = iota // 自动协商
-	ProtocolHTTP11                         // HTTP/1.1
-	ProtocolHTTP2                          // HTTP/2
-	ProtocolHTTP3                          // HTTP/3
+	ProtocolAuto   HTTPProtocol = iota // 自动协商
+	ProtocolHTTP11                     // HTTP/1.1
+	ProtocolHTTP2                      // HTTP/2
+	ProtocolHTTP3                      // HTTP/3
 )
 
 // ProxyType 表示代理类型。
 type ProxyType int
 
 const (
-	ProxyHTTP    ProxyType = iota // HTTP 代理
-	ProxySOCKS5                   // SOCKS5 代理
+	ProxyHTTP   ProxyType = iota // HTTP 代理
+	ProxySOCKS5                  // SOCKS5 代理
 )
 
 // ProxyConfig 描述一个代理节点。
@@ -59,48 +59,53 @@ type ProxyConfig struct {
 
 // TLSFingerprint 控制 TLS 客户端指纹的随机化配置。
 type TLSFingerprint struct {
-	Enabled               bool
-	MinTLSVersion         uint16
-	CipherSuites          []uint16
-	CurvePreferences      []tls.CurveID
+	Enabled          bool
+	MinTLSVersion    uint16
+	CipherSuites     []uint16
+	CurvePreferences []tls.CurveID
 }
 
 // Options 包含传输层的全部可配置选项。
 type Options struct {
-	Timeout             time.Duration
-	InsecureTLS         bool
-	DisableCompression  bool
+	Timeout            time.Duration
+	InsecureTLS        bool
+	DisableCompression bool
 
 	// P0.1 — User-Agent 轮换
-	UAPool             *useragent.Pool
-	UARotation         bool
+	UAPool     *useragent.Pool
+	UARotation bool
 
 	// P0.3 — 动态表单字段名
-	DynamicFieldNames  bool
-	FieldGen           *FieldGenerator
+	DynamicFieldNames bool
+	FieldGen          *FieldGenerator
 
 	// P0.5 — 请求正文填充（Honeypot Fields）
-	EnablePadding      bool
-	HoneypotCount      int
-	honeypot           *HoneypotFields
+	EnablePadding bool
+	HoneypotCount int
+	honeypot      *HoneypotFields
 
 	// P0.6 — TLS 指纹随机化
-	TLSFingerprint     TLSFingerprint
+	TLSFingerprint TLSFingerprint
 
 	// P0.8 — 多协议协商
-	Protocol           HTTPProtocol
+	Protocol HTTPProtocol
 
 	// P0.9 — 连接池与会话维持
-	MaxIdleConns       int
+	MaxIdleConns        int
 	MaxIdleConnsPerHost int
-	IdleConnTimeout    time.Duration
-	EnableCookieJar    bool
+	IdleConnTimeout     time.Duration
+	EnableCookieJar     bool
 
 	// P0.10 — 代理链与出口 IP 轮换
-	ProxyChain         []ProxyConfig
-	ProxyRotation       bool
+	ProxyChain    []ProxyConfig
+	ProxyRotation bool
 	// P1.1 — Wire Protocol
 	WireProtocol bool
+
+	// P1 — Body 级加密：发送前序列化整个表单并加密，响应先解密再走原链路。
+	BodyCrypto  core.BodyCrypto
+	CryptoField string
+	BodyCodec   wire.BodyCodec
 }
 
 // DefaultOptions 返回默认的传输层选项。
@@ -119,7 +124,9 @@ func DefaultOptions() Options {
 		IdleConnTimeout:     90 * time.Second,
 		EnableCookieJar:     true,
 		ProxyRotation:       false,
-	WireProtocol: false,
+		WireProtocol:        false,
+		CryptoField:         "__crypto",
+		BodyCodec:           wire.NewCompactFormCodec(),
 		TLSFingerprint: TLSFingerprint{
 			Enabled:       false,
 			MinTLSVersion: tls.VersionTLS12,
@@ -169,9 +176,12 @@ func (t *Transport) RoundTrip(ctx context.Context, req *core.Request) (*core.Res
 	if t.Endpoint == "" {
 		return nil, &core.OpError{Kind: core.ErrNetwork, Operation: req.Operation, Message: "httpform: endpoint 为空"}
 	}
+	if t.Options.BodyCrypto != nil && t.Options.WireProtocol {
+		return nil, &core.OpError{Kind: core.ErrProtocol, Operation: req.Operation, Message: "httpform: BodyCrypto 与 WireProtocol 互斥，不能同时启用"}
+	}
 
 	// 构建表单
-	form, err := t.buildForm(req)
+	form, err := t.buildForm(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -196,8 +206,16 @@ func (t *Transport) RoundTrip(ctx context.Context, req *core.Request) (*core.Res
 	out := core.NewResponse()
 	out.RequestID = req.ID
 	out.StatusCode = httpResp.StatusCode
-	out.Body = data
 	out.Headers = flattenHeaders(httpResp.Header)
+	if t.Options.BodyCrypto != nil && len(data) > 0 {
+		decrypted, decErr := t.Options.BodyCrypto.DecryptBody(ctx, data)
+		if decErr != nil {
+			out.Body = data
+			return out, &core.OpError{Kind: core.ErrCrypto, Operation: req.Operation, Message: "httpform: 响应解密失败", Cause: decErr}
+		}
+		data = decrypted
+	}
+	out.Body = data
 	if readErr != nil {
 		return out, &core.OpError{Kind: core.ErrNetwork, Operation: req.Operation, Message: "httpform: 读取 body 失败", Cause: readErr}
 	}
@@ -216,9 +234,9 @@ func (t *Transport) getClient() *http.Client {
 			jar = newCookieJar()
 		}
 		t.client = &http.Client{
-			Timeout:       t.effectiveTimeout(),
-			Transport:     tr,
-			Jar:           jar,
+			Timeout:   t.effectiveTimeout(),
+			Transport: tr,
+			Jar:       jar,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -360,8 +378,9 @@ func (t *Transport) ResetClient() {
 	t.client = nil
 }
 
-// buildForm 构造表单，集成 P0.3（动态字段名）和 P0.5（诱饵字段）。
-func (t *Transport) buildForm(req *core.Request) (url.Values, error) {
+// buildForm 构造表单，集成 P0.3（动态字段名）、P0.5（诱饵字段）和
+// P1 BodyCrypto（整个表单序列化后加密为单一 CryptoField）。
+func (t *Transport) buildForm(ctx context.Context, req *core.Request) (url.Values, error) {
 	form := url.Values{}
 
 	// P0.3 — 动态字段名
@@ -384,17 +403,26 @@ func (t *Transport) buildForm(req *core.Request) (url.Values, error) {
 		form.Set(fieldName, string(value))
 	}
 
+	// env template vars: key|||askey|||value pairs joined by |||asline|||
+	if env := req.Meta["env_template_vars"]; env != "" {
+		for _, pair := range strings.Split(env, "|||asline|||") {
+			if key, value, ok := strings.Cut(pair, "|||askey|||"); ok {
+				form.Set(key, value)
+			}
+		}
+	}
+
 	// P0.5 — 诱饵字段（Honeypot）
+	var honeypotFields map[string]string
 	if t.Options.EnablePadding && t.Options.HoneypotCount > 0 {
 		hf := t.getHoneypot()
-		honeypotFields := hf.Generate()
+		honeypotFields = hf.Generate()
 		for name, value := range honeypotFields {
 			if form.Get(name) == "" {
 				form.Set(name, value)
 			}
 		}
 	}
-
 
 	// P1.1 — Wire Protocol 字段
 	if t.Options.WireProtocol {
@@ -405,7 +433,47 @@ func (t *Transport) buildForm(req *core.Request) (url.Values, error) {
 		}
 	}
 
+	if t.Options.BodyCrypto != nil {
+		values := make(map[string][]byte, len(form))
+		for name, entries := range form {
+			if len(entries) > 0 {
+				values[name] = []byte(entries[0])
+			}
+		}
+		encoded, err := t.bodyCodec().Encode(values)
+		if err != nil {
+			return nil, &core.OpError{Kind: core.ErrProtocol, Operation: req.Operation, Message: "httpform: 表单序列化失败", Cause: err}
+		}
+		encrypted, err := t.Options.BodyCrypto.EncryptBody(ctx, encoded)
+		if err != nil {
+			return nil, &core.OpError{Kind: core.ErrCrypto, Operation: req.Operation, Message: "httpform: 请求体加密失败", Cause: err}
+		}
+
+		out := url.Values{}
+		out.Set(t.cryptoField(), string(encrypted))
+		for name, value := range honeypotFields {
+			if out.Get(name) == "" {
+				out.Set(name, value)
+			}
+		}
+		return out, nil
+	}
+
 	return form, nil
+}
+
+func (t *Transport) cryptoField() string {
+	if t.Options.CryptoField != "" {
+		return t.Options.CryptoField
+	}
+	return "__crypto"
+}
+
+func (t *Transport) bodyCodec() wire.BodyCodec {
+	if t.Options.BodyCodec != nil {
+		return t.Options.BodyCodec
+	}
+	return wire.NewCompactFormCodec()
 }
 
 // resolvePayloadField 解析主 payload 字段名（P0.3）。
@@ -438,6 +506,7 @@ func (t *Transport) getHoneypot() *HoneypotFields {
 	}
 	return t.Options.honeypot
 }
+
 // setHeaders 设置 HTTP 请求头，集成 P0.1（UA 轮换）。
 func (t *Transport) setHeaders(httpReq *http.Request, req *core.Request) {
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
