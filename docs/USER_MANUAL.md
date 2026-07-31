@@ -107,6 +107,8 @@ tr.ExtraHeaders = map[string]string{"X-Test": "lab"}
 - `EnablePadding` / `HoneypotCount`：增加诱饵表单字段，数量最多 20；
 - `TLSFingerprint`：TLS 版本、曲线和 cipher suite 配置；
 - `Protocol`：自动、HTTP/1.1、HTTP/2 或 HTTP/3（HTTP/3 需要底层运行环境支持）；
+- `WireProtocol`：为表单增加 `_v`、`_rid`、`_ts`、`_nonce`、`_sig` 字段（见第 6 节）；
+- `BodyCrypto` / `CryptoField` / `BodyCodec`：body 级加密（见第 5 节 Crypto）；
 - 连接池、Cookie Jar、代理链和代理轮换。
 
 这些选项只改变 HTTP 传输行为，不会改变 Operation 的参数语义。启用 `InsecureTLS` 会关闭证书校验，只应在隔离测试环境使用。
@@ -142,6 +144,30 @@ Marker 对 PHP payload 有专门的 `echo` 包装；非 PHP 适配器只会把�
 
 Crypto 必须与远端 Shell 实现保持同一协议。现有 PHP/ASP/ASPX 普通 Shell 不会自动解密 AES-GCM；JSP 提供 `CryptoShellSource` / `CryptoDynamicShellSource` 作为配套 Shell 生成器。不要只在客户端启用 Crypto 而不部署兼容的服务端。
 
+### BodyCrypto
+
+`core.BodyCrypto` 是传输层（body 级）加密接口，提供 `EncryptBody` / `DecryptBody`。它和 payload 级 `core.Crypto` 互斥：
+
+- 客户端用 `core.WithBodyCrypto(...)` 声明；`WithCrypto` 与 `WithBodyCrypto` 同时设置会在执行时报出明确错误；
+- Transport 在发送前对整个表单序列化（默认 `protocol/wire` compact form codec：排序字段 + base64 值），然后调用 `EncryptBody`，只提交 `CryptoField`（默认 `__crypto`）一个字段；响应先 `DecryptBody` 再走原 envelope/transform/codec/parse 链路；
+- `crypto/aesgcm`、`crypto/noop` 同时实现 `core.Crypto` 和 `core.BodyCrypto`，线格式仍为 `base64(nonce || ciphertext || tag)`；
+- `BodyCrypto` 与 `httpform.Options.WireProtocol` 互斥。
+
+```go
+opts := httpform.DefaultOptions()
+opts.BodyCrypto = cr                          // aesgcm.New(key)
+opts.CryptoField = "__crypto"                 // 默认值
+opts.BodyCodec = wire.NewCompactFormCodec()   // 默认值
+tr := httpform.NewWithOptions(endpoint, opts)
+client := core.NewClient(
+    core.WithSession(sess),
+    core.WithTransport(tr),
+    core.WithBodyCrypto(cr),
+)
+```
+
+PHP 配套的 eval 型加密 shell 由 `php.CryptoShellSource(key)` 生成；JSP 提供 `jsp.CryptoBodyShellSource(key)` 的 body 模式 shell。两者都先解密 `__crypto` 里的完整表单，再走原模板。
+
 ## 6. Wire Protocol
 
 `httpform.Options.WireProtocol` 为表单增加 `_v`、`_rid`、`_ts`、`_nonce`、`_sig` 字段。`marker.NewWithWire()` 解析响应中的结构化头：
@@ -171,6 +197,8 @@ Options: map[string]string{
 ```
 
 `protocol/wire.ResponsePrefix` 默认是 `RBS1.0`，可以在部署协议一致的前提下改为自定义前缀。
+
+`WireProtocol` 与 `BodyCrypto` 互斥：两者同时配置时 `httpform.RoundTrip` 会直接返回 `ErrProtocol`。
 
 ## 7. Middleware
 
@@ -231,10 +259,14 @@ record, _ := mgr.Refresh(ctx, "node-1", php.NewPhpInfo())
 
 | 适配器 | 工厂创建 Client | 默认操作模式 | Shell 生成 |
 | --- | --- | --- | --- |
-| PHP | 支持 | 每次请求生成 PHP 代码 | `php.NewPHPTemplates` / `adapter/php` |
+| PHP | 支持 | 每次请求生成 PHP 代码 | `php.NewPHPTemplates`；加密 eval shell 用 `php.CryptoShellSource` |
+| PHP eval（`php-eval`） | 支持 | 每次请求生成 PHP 代码（无 envelope） | `php.CryptoShellSource`，body 级加密 |
 | ASP | 支持 | VBScript 模板 + Base64 参数 | `asp.ShellSource` |
 | ASPX | 支持 | C# CodeDom 模板 + Base64 参数 | `aspx.ShellSource` |
-| JSP | 不支持，需手动组装 | 静态动作码 | `jsp.ShellSource` |
+| JSP | 不支持，需手动组装 | 静态动作码 | `jsp.ShellSource` / `jsp.CryptoShellSource` |
+| JSP Body | 不支持，需手动组装 | 静态动作码 | `jsp.CryptoBodyShellSource` |
 | JSP Dynamic | 不支持，需手动组装 | Nashorn JavaScript | `jsp.DynamicShellSource`，已弃用 |
+
+Adapter Profile 会在执行前校验组件组合：空 `Envelopes` 表示拒绝任何 envelope；`php-eval` 和 `jsp` 声明支持 `aes-gcm` crypto mode；客户端 crypto 与 session 中 shell 声明的 `crypto_mode` 不一致会返回 `ErrProtocol`。
 
 `WrapOp` 是工厂提供的显式转换方法，不会被 `Client.Do` 自动调用。通用 `ops` 适合抽象和测试；真实语言 Shell 应使用对应适配器的 `NewPhp*`、`NewAsp*`、`NewAspx*` 或 `NewJsp*`。

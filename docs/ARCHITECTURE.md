@@ -8,10 +8,10 @@ adapter/<language>/   服务端语言模板、参数协议、解析器、Factory
 transport/            HTTP form、mock、UA、jitter
 codec/                plain、base64
 envelope/marker/      tag_s/tag_e 和可选 Wire Protocol
-protocol/wire/        Wire Protocol 头、HMAC 和 nonce
+protocol/wire/        Wire Protocol 头、HMAC、nonce 和 BodyCodec（compact form）
 middleware/            logging、audit、timeout、retry、readonly
 registry/              memory、JSON file
-crypto/                noop、AES-GCM
+crypto/                noop、AES-GCM、fragment（shell 端代码片段）
 transform/             noop、HTML comment、JSONP、JS wrapper
 ops/                   不带语言语义的通用 Operation
 ```
@@ -29,12 +29,15 @@ ops/                   不带语言语义的通用 Operation
 | 适配器 | Transport | Codec | Envelope | Crypto | 工厂 |
 | --- | --- | --- | --- | --- | --- |
 | PHP | httpform | plain | marker / wire | 需配套 Shell | 支持 |
+| PHP eval（`php-eval`） | httpform | plain | 无 | BodyCrypto（aes-gcm） | 支持 |
 | ASP | httpform | plain | 需服务端配合 | 需配套 Shell | 支持 |
 | ASPX | httpform | plain | 需服务端配合 | 需配套 Shell | 支持 |
-| JSP static | httpform | plain | 需服务端配合 | 可使用 JSP CryptoShell | 手动 Client |
+| JSP static | httpform | plain | 需服务端配合 | CryptoShell / CryptoBodyShell（aes-gcm） | 手动 Client |
 | JSP dynamic | httpform | plain | 需服务端配合 | 可使用 CryptoDynamicShell | 手动 Client |
 
 已知 Adapter Profile 会在 Client 执行前拒绝不兼容的 Codec/Envelope 组合。未知适配器不会自动获得能力或协议实现，应由调用方提供完整组件。
+
+`ValidateProfile` 把空 `Envelopes` 视为拒绝任何 envelope（asp/aspx/jsp/php-eval 不再放行 marker），`php-eval` 与 `jsp` 声明支持 `aes-gcm` crypto mode。
 
 ## 重要实现约束
 
@@ -44,6 +47,9 @@ ops/                   不带语言语义的通用 Operation
 4. Marker 缺少任一边界时会失败关闭并返回 `ErrEnvelope`。HTTP 200 不能单独证明操作成功。
 5. `retry` 默认只覆盖幂等读操作；不要把写入和命令执行加入默认重试。
 6. `InsecureTLS`、代理、动态字段和诱饵字段属于传输配置，不能替代认证、授权或服务端访问控制。
+7. `core.WithCrypto` 与 `core.WithBodyCrypto` 互斥；BodyCrypto 由 Transport 在 RoundTrip 内处理，客户端检测到后跳过 payload 级 Encrypt/Decrypt。
+8. `BodyCrypto` 与 `WireProtocol` 互斥，httpform 会直接返回 `ErrProtocol`。
+9. Adapter profile 通过可选 `Envelope.Name()` 接口取 envelope 名称，缺失时回退 `"marker"`。
 
 ## 维护建议
 
