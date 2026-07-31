@@ -1,118 +1,92 @@
+# 适配器开发指南
 
-# 如何编写自定义适配器
+适配器是把通用 `core.Operation` 映射为某种服务端语言或 Shell 协议的边界层。它负责模板、参数编码、错误标记和结果解析；`core` 只负责生命周期、组件编排和错误归一化。
 
-## 目录
+## 1. 推荐目录结构
 
-- [1. 适配器结构](#1-适配器结构)
-- [2. 最小适配器示例](#2-最小适配器示例)
-- [3. 专属 Operation](#3-专属-operation)
-- [4. ClientFactory](#4-clientfactory)
-- [5. 注册到 Manager](#5-注册到-manager)
-
----
-
-## 1. 适配器结构
-
-```
-adapter/
-└── jsp/                          # JSP 适配器
-    ├── templates.go              # Java 模板 + ShellSource
-    ├── js_templates.go          # JS 模板（Dynamic 模式）
-    ├── operations.go             # 6 个操作实现
-    ├── mode.go                  # ShellStatic / ShellDynamic
-    ├── obfuscate.go             # Obfuscator
-    ├── crypto_shell.go           # Crypto Shell 生成
-    ├── shell_dynamic.go         # Dynamic Shell 源码
-    ├── parser.go                # 响应解析
-    ├── client_factory.go        # ClientFactory
-    ├── capabilities.go          # 能力声明
-    └── adapter.go               # 主适配器
+```text
+adapter/<name>/
+  adapter.go          # 模板、Parser、Capabilities 的组合
+  capabilities.go    # 能力声明
+  operations.go      # Name / Build / Parse
+  templates.go       # 服务端源代码模板
+  parser.go          # 响应解析和远端错误识别
+  client_factory.go  # 从 NodeRecord 组装 Client
+  obfuscate.go       # 可选：部署与客户端共用的命名状态
 ```
 
----
+PHP、ASP、ASPX 和 JSP 都采用这一边界。`adapter/mock` 只用于测试。
 
-## 2. 最小适配器示例
+## 2. Operation 契约
+
+`Build` 应返回已经具备服务端语义的 `Request`：
+
+- `Payload`：服务端待执行的代码或动作码；
+- `Params`：额外参数，二进制内容先在适配器中编码；
+- `Meta["adapter"]`：适配器名；
+- `Meta["payload_form_field"]`：需要自定义主 payload 表单字段时设置；
+- `RiskLevel`：声明只读、写入或执行风险。
+
+`Parse` 必须先处理空响应和远端错误，再构造强类型 Result。文件内容使用 `[]byte` 保持二进制安全；不要在适配器层把下载内容强制转换为 UTF-8。
+
+示例：
 
 ```go
-package jsp
+type infoOperation struct{}
 
-import "github.com/Yliken/redbeanshellcore/core"
+func (o *infoOperation) Name() string { return "info" }
+func (o *infoOperation) RiskLevel() core.RiskLevel { return core.RiskReadOnly }
 
-type Adapter struct{}
-
-func New() *Adapter { return &Adapter{} }
-
-func (a *Adapter) Capabilities() []core.Capability {
-    return []core.Capability{
-        core.CapInfo,
-        core.CapExec,
-        core.CapFileList,
-        core.CapFileRead,
-    }
-}
-```
-
----
-
-## 3. 专属 Operation
-
-核心：Build 阶段生成可执行代码，Parse 阶段结构化结果。
-
-```go
-// 模板
-func renderJspInfo() string {
-    return `<%
-    String workdir = new java.io.File(".").getAbsolutePath();
-    String os = System.getProperty("os.name") + " " + System.getProperty("os.version");
-    String user = System.getProperty("user.name");
-    out.print(workdir + "\t/\t" + os + "\t" + user);
-    %>`
-}
-
-// Operation
-type jspInfo struct{}
-
-func NewJspInfo() *jspInfo { return &jspInfo{} }
-func (o *jspInfo) Name() string { return "info" }
-
-func (o *jspInfo) Build(ctx context.Context, sess *core.Session) (*core.Request, error) {
+func (o *infoOperation) Build(context.Context, *core.Session) (*core.Request, error) {
     req := core.NewRequest(o.Name())
-    req.Payload = []byte(renderJspInfo())
+    req.Payload = []byte(renderInfo())
+    req.Meta["adapter"] = "example"
     return req, nil
 }
 
-func (o *jspInfo) Parse(ctx context.Context, resp *core.Response) (core.Result, error) {
-    parts := strings.Split(string(resp.Body), "\t")
-    res := &core.InfoResult{BaseResult: core.NewBaseResult(o.Name(), resp.Body)}
-    if len(parts) >= 4 {
-        res.Workdir = parts[0]
-        res.OS = parts[2]
-        res.User = parts[3]
-    }
-    return res, nil
+func (o *infoOperation) Parse(_ context.Context, resp *core.Response) (core.Result, error) {
+    if resp == nil { return nil, errors.New("response is nil") }
+    return &core.InfoResult{
+        BaseResult: core.NewBaseResult(o.Name(), resp.Body),
+        OS: string(resp.Body),
+    }, nil
 }
 ```
 
----
+## 3. 能力声明
+
+能力是 `core.Capability`：`CapInfo`、`CapExec`、`CapFileList`、`CapFileRead`、`CapFileUpload`。适配器应让 `Capabilities()` 与实际可构造的操作保持一致；不要声明尚未实现的能力。
+
+```go
+type Capabilities struct{}
+
+func (Capabilities) All() []core.Capability {
+    return []core.Capability{
+        core.CapInfo, core.CapExec, core.CapFileList,
+        core.CapFileRead, core.CapFileUpload,
+    }
+}
+```
+
+需要在调用前校验能力时，让 Operation 实现 `RequiredCapabilities()`，并在应用层根据 Session 能力快照拒绝不支持的请求。
 
 ## 4. ClientFactory
+
+Factory 接收 `*core.NodeRecord`，创建 Transport、Session 和可选的 Envelope：
 
 ```go
 type ClientFactory struct{}
 
-func NewClientFactory() *ClientFactory { return &ClientFactory{} }
-
-func (f *ClientFactory) NewClient(ctx context.Context, rec *core.NodeRecord) (*core.Client, error) {
-    tr := httpform.New(rec.Config.Endpoint)
-    tr.Timeout = 30 * time.Second
-
-    sess := &core.Session{
-        NodeID:    rec.Config.ID,
-        Endpoint:  rec.Config.Endpoint,
-        Adapter:   rec.Config.Adapter,
-        Metadata:  rec.Metadata,
+func (f *ClientFactory) NewClient(_ context.Context, rec *core.NodeRecord) (*core.Client, error) {
+    if rec == nil || rec.Config.Endpoint == "" {
+        return nil, errors.New("endpoint is required")
     }
-
+    tr := httpform.New(rec.Config.Endpoint)
+    sess := core.NewSession(rec.Config.ID, rec.Config.Endpoint)
+    sess.Adapter = rec.Config.Adapter
+    sess.Transport = rec.Config.Transport
+    sess.Metadata = clone(rec.Metadata)
+    for k, v := range rec.Config.Auth { sess.Metadata[k] = v }
     return core.NewClient(
         core.WithSession(sess),
         core.WithTransport(tr),
@@ -120,53 +94,56 @@ func (f *ClientFactory) NewClient(ctx context.Context, rec *core.NodeRecord) (*c
 }
 ```
 
----
+生产 Factory 还应解析 `rec.Config.Options`，例如超时、TLS、Wire Protocol 和 HMAC key。内置行为：
 
-## 5. 注册到 Manager
+- PHP、ASP、ASPX 的 `NewClientFactory` 支持默认 `httpform`；
+- JSP 的 `NewClientFactory.NewClient` 明确不构建 Client，必须由调用方手动提供 Transport 和 Session；
+- `core.DefaultClientFactory` 只提供选择器骨架，内置 `httpform` 和 `mock` 仍要求调用方接入自定义 Factory。
 
-方法一：自定义 Factory（推荐）：
+## 5. 显式 WrapOp
 
-```go
-// 使用 PHP 适配器内置的 Factory
-mgr := core.NewManager(registry, php.NewClientFactory())
-
-// 或接入自己的 JSP / ASP Factory
-mgr := core.NewManager(registry, jsp.NewClientFactory())
-```
-
-方法二：默认 Factory（仅限跑测试 / 接自定义 selector）：
+通用 `ops` 与语言专属 Operation 不能自动互换。Factory 可以提供 `WrapOp`：
 
 ```go
-// ⚠️ 默认工厂对所有内置 transport/codec/envelope 都返回错误或 nil，
-// 无法直接用于真实环境。必须提供自定义 ClientFactory。
-mgr := core.NewManager(registry, core.DefaultClientFactory())
+factory := php.NewClientFactory()
+op, err := factory.WrapOp(ops.NewExec("whoami"))
+if err != nil { /* ... */ }
+result, err := client.Do(ctx, op)
 ```
 
-使用：
+`WrapOp` 不会被 `Client.Do` 隐式调用。上传操作会读取通用 `io.Reader`，因此调用方应明确承担一次性读取和内存占用。
+
+## 6. Shell 与客户端的状态配对
+
+ASP、ASPX、JSP 的混淆器会同时改变服务端字段名和客户端参数名。部署 Shell 后，客户端必须使用同一个 `Obfuscator`：
 
 ```go
-client, _ := mgr.Client(ctx, "jsp-node")
-res, _ := client.Do(ctx, jsp.NewJspInfo())
+obf := jsp.NewObfuscator()
+shell := jsp.ShellSourceWith(obf) // 部署 shell
+op := jsp.NewJspExec("whoami").WithObfuscator(obf)
 ```
 
----
+如果只随机化 Shell 而没有保存 `Obfuscator`，后续请求无法匹配字段和动作码。PHP 的模板在每次 Build 时生成随机内部变量和参数字段，Transport 只负责原样提交 `Request.Params`。
 
-## 参考：PHP 适配器实现
+JSP 有两种模式：
 
-编写 JSP / ASP 适配器前，先读 `adapter/php/` 作为完整参考：
+- `ShellStatic`：预部署全部动作码，兼容所有 JDK，默认推荐；
+- `ShellDynamic`：通过 `ScriptEngine` 执行 JavaScript，需要 Nashorn（JDK 6–14），已弃用。
 
-- `renderer.go` — 生成可执行的 PHP 源码模板
-- `operations.go` — Build 阶段按模板协议编码参数，Parse 阶段生成结构化结果
-- `client_factory.go` — `WrapOp` 可显式、按具体类型转换部分通用 Operation，不会被 Client 自动调用
-- `capabilities.go` — 声明适配器支持的 Capability；当前 Capability 仅用于描述
+## 7. 错误协议和边界
 
-PHP Exec/Upload 使用 Base64 参数内联；FileList/FileRead/FileDownload 使用随机 `$_POST` 字段，并由 Operation 预先 Base64 编码字段值。Transport 只负责原样提交 `Request.Params`。
+远端错误应使用不会与合法文件内容混淆的前缀，例如 `ERR:<random>:`，解析时转换为 `core.ErrRemoteRuntime`。Marker Envelope 的开始/结束标记由客户端每次生成，适配器不得假设固定值。
 
----
+如果适配器支持 Wire Protocol，需要让服务端输出版本、RID、时间戳、nonce、状态和可选 HMAC；客户端使用 `marker.NewWithWire()` 和 `httpform.Options.WireProtocol` 成对启用。
 
-## 注意事项
+## 8. 测试清单
 
-1. **二进制安全**：文件读取/下载使用二进制模式，不要进行字符串转码
-2. **协议错误**：为远端错误定义稳定且带命名空间的标记，避免与合法文件内容混淆
-3. **参数编码**：编码责任属于 Adapter/Operation，不应由通用 Transport 猜测
-4. **显式适配**：通用 Operation 到语言专属 Operation 的转换应保持参数语义并显式调用
+至少覆盖：
+
+1. 每个 Operation 的 `Name`、Build 参数编码和风险等级；
+2. 正常响应、空响应、格式错误响应和远端错误前缀；
+3. 二进制文件读取不损坏字节；
+4. `Capabilities()` 与实际操作集合一致；
+5. 自定义字段名/混淆器在 Shell 和客户端之间一致；
+6. Factory 对空记录、空 Endpoint 和未知 Transport 返回明确错误；
+7. 与 `transport/mock` 的完整 Client 流程测试。

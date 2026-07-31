@@ -37,6 +37,16 @@ go get github.com/Yliken/redbeanshellcore
 ```
 
 ```go
+import (
+    "context"
+    "fmt"
+
+    "github.com/Yliken/redbeanshellcore/adapter/php"
+    "github.com/Yliken/redbeanshellcore/core"
+    "github.com/Yliken/redbeanshellcore/transport/httpform"
+)
+
+ctx := context.Background()
 client := core.NewClient(
     core.WithSession(&core.Session{
         NodeID: "lab-01",
@@ -47,7 +57,7 @@ client := core.NewClient(
     core.WithTransport(httpform.New("https://lab.example/shell.php")),
 )
 
-res, _ := client.Do(ctx, phpshell.NewPhpInfo())
+res, _ := client.Do(ctx, php.NewPhpInfo())
 info := res.(*core.InfoResult)
 fmt.Printf("workdir=%s\nos=%s\nuser=%s\n", info.Workdir, info.OS, info.User)
 ```
@@ -63,14 +73,15 @@ fmt.Printf("workdir=%s\nos=%s\nuser=%s\n", info.Workdir, info.OS, info.User)
 | [QUICKSTART.md](docs/QUICKSTART.md) | 快速开始、常见问题 |
 | [USER_MANUAL.md](docs/USER_MANUAL.md) | 完整 API 参考 |
 | [ADAPTER.md](docs/ADAPTER.md) | 编写自定义适配器 |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层、兼容性和实现边界 |
 
 ---
 
 ## TODO
 
-目前仅支持 **PHP** 语言的 WebShell，计划添加对其他语言的支持：
+当前内置 PHP、JSP、ASP 和 ASPX 适配器：
 
-- [x] **JSP** — Java Web Shell
+- [x] **JSP** — Java Web Shell（静态模式推荐，动态模式依赖旧版 Nashorn）
 - [x] **ASP / ASPX** — IIS 环境
 - [ ] 其他语言
 
